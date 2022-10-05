@@ -3,7 +3,6 @@ import { defineStore } from "pinia";
 import { frameworkMenus, headerMenus, filterMenus, findMenus } from "/src/router/resolve";
 import _ from "lodash-es";
 import { mitter } from "/src/utils/util.mitt";
-
 //监听注销事件
 mitter.on("app.logout", () => {
   const resourceStore = useResourceStore();
@@ -80,9 +79,26 @@ export const useResourceStore = defineStore({
       if (matched?.length <= 1) {
         return;
       }
+
+      function findFromTree(tree, find) {
+        const results: Array<any> = [];
+        for (const item of tree) {
+          if (find(item)) {
+            results.push(item);
+            return results;
+          }
+          if (item.children && item.children.length > 0) {
+            const found = findFromTree(item.children, find);
+            if (found) {
+              results.push(item);
+              return results.concat(found);
+            }
+          }
+        }
+      }
       const matchedPath = matched[1].path;
-      const _side = menuHeader.filter((menu) => menu.path === matchedPath);
-      if (_side.length > 0) {
+      const _side = findFromTree(menuHeader, (menu) => menu.path === matchedPath);
+      if (_side?.length > 0) {
         if (this.currentAsidePath === _side[0]) {
           return;
         }

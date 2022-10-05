@@ -46,7 +46,7 @@ export default function ({ expose }) {
         },
         intro: {
           title: "简介",
-          type: "text-area",
+          type: "textarea",
           column: {
             ellipsis: true
           }
@@ -55,8 +55,12 @@ export default function ({ expose }) {
           title: "详情",
           type: "editor-ueditor",
           form: {
-            itemProps: { labelWidth: "0px" }
+            labelWidth: "0px"
           }
+        },
+        slotField: {
+          title: "插槽示例",
+          type: "text"
         },
         product: {
           title: "未分组字段",
@@ -64,6 +68,26 @@ export default function ({ expose }) {
           form: {
             col: { span: 24 },
             helper: "未分组的字段会显示在这里，一般来说你应该把所有字段都编入分组内"
+          }
+        },
+        hidden1: {
+          title: "隐藏1",
+          type: "text",
+          form: {
+            show: false
+          },
+          column: {
+            show: false
+          }
+        },
+        hidden2: {
+          title: "隐藏2",
+          type: "text",
+          form: {
+            show: false
+          },
+          column: {
+            show: false
           }
         }
       },
@@ -84,7 +108,7 @@ export default function ({ expose }) {
                   );
                 }
               },
-              columns: ["code", "title", "images"]
+              columns: ["code", "title", "images", "invalidKey"]
             },
             price: {
               header: "库存价格",
@@ -93,7 +117,11 @@ export default function ({ expose }) {
             info: {
               header: "详情",
               collapsed: true, //默认折叠
-              columns: ["intro", "content"]
+              columns: ["intro", "content", "slotField"]
+            },
+            hiddenTest: {
+              header: "分组隐藏测试", //如果组里面的所有的组件都配置了隐藏,则本分组隐藏
+              columns: ["hidden1", "hidden2"]
             }
             // custom: {
             //   title: "自定义",

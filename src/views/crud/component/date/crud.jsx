@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { utils } from "@fast-crud/fast-crud";
-import moment from "moment";
+import dayjs from "dayjs";
+
 console.log("utils", utils);
 export default function ({ expose }) {
   const pageRequest = async (query) => {
@@ -26,7 +27,7 @@ export default function ({ expose }) {
         delRequest
       },
       table: {
-        scroll: { x: 1700 }
+        scroll: { x: 2000 }
       },
       rowHandle: { fixed: "right" },
       columns: {
@@ -44,10 +45,15 @@ export default function ({ expose }) {
         timestamp: {
           title: "时间戳",
           type: "datetime",
-          search: { show: true, width: 185 },
+          search: {
+            show: true,
+            width: 185,
+            component: {}
+          },
           valueBuilder({ value, row, key }) {
+            console.log("value builder:", key, value, row);
             if (value != null) {
-              row[key] = moment(value);
+              row[key] = dayjs(value);
             }
           },
           valueResolve({ value, row, key }) {
@@ -59,9 +65,9 @@ export default function ({ expose }) {
         datetime: {
           title: "日期时间",
           type: "datetime",
-          valueBuilder({ value, row, key }) {
-            if (value != null) {
-              row[key] = moment(value);
+          form: {
+            component: {
+              valueFormat: "YYYY-MM-DD HH:mm:ss" //输入值的格式
             }
           }
         },
@@ -71,7 +77,7 @@ export default function ({ expose }) {
           form: {
             component: {
               format: "YYYY年MM月DD日 HH:mm",
-              valueFormat: "YYYY年MM月DD日 HH:mm"
+              valueFormat: "YYYY-MM-DD HH:mm:ss" //输入值的格式
             }
           },
           column: {
@@ -87,32 +93,10 @@ export default function ({ expose }) {
           type: "date",
           form: {
             component: {
+              valueFormat: "YYYY-MM-DD HH:mm:ss", //输入值的格式
               events: {
                 onChange(context) {
                   console.log("change", context);
-                }
-              }
-            }
-          },
-          valueBuilder({ value, row, key }) {
-            if (value != null) {
-              row[key] = moment(value);
-            }
-          }
-        },
-        disabledDate: {
-          title: "禁用日期",
-          type: "date",
-          form: {
-            valueBuilder({ value, row, key }) {
-              if (value) {
-                row[key] = moment(value);
-              }
-            },
-            component: {
-              "picker-options": {
-                disabledDate(time) {
-                  return time.getTime() < Date.now();
                 }
               }
             }
@@ -122,13 +106,20 @@ export default function ({ expose }) {
           title: "仅时间",
           type: "time",
           form: {
-            valueBuilder({ value, row, key }) {
-              if (value) {
-                row[key] = moment(value);
+            component: {
+              valueFormat: "YYYY-MM-DD HH:mm:ss" //输入值的格式
+            }
+          }
+        },
+        disabledDate: {
+          title: "禁用日期",
+          type: "date",
+          form: {
+            component: {
+              valueFormat: "YYYY-MM-DD HH:mm:ss", //输入值的格式
+              disabledDate(current) {
+                return current && current < dayjs().endOf("day");
               }
-            },
-            valueResolve({ value }) {
-              console.log("resolve:", value);
             }
           }
         },
@@ -138,7 +129,7 @@ export default function ({ expose }) {
           search: { show: true, width: 300 },
           valueBuilder({ row, key }) {
             if (!utils.strings.hasEmpty(row.daterangeStart, row.daterangeEnd)) {
-              row[key] = [moment(row.daterangeStart), moment(row.daterangeEnd)];
+              row[key] = [dayjs(row.daterangeStart), dayjs(row.daterangeEnd)];
             }
           }
         },
@@ -147,7 +138,7 @@ export default function ({ expose }) {
           type: "datetimerange",
           valueBuilder({ row, key }) {
             if (!utils.strings.hasEmpty(row.datetimerangeStart, row.datetimerangeEnd)) {
-              row[key] = [moment(row.datetimerangeStart), moment(row.datetimerangeEnd)];
+              row[key] = [dayjs(row.datetimerangeStart), dayjs(row.datetimerangeEnd)];
             }
           },
           valueResolve({ form, key }) {
@@ -160,6 +151,10 @@ export default function ({ expose }) {
               row.datetimerangeEnd = null;
             }
           }
+        },
+        customType: {
+          title: "自定义字段类型",
+          type: "time2"
         }
       }
     }

@@ -67,9 +67,16 @@ export default function ({ expose }) {
           title: "邮编",
           type: "text"
         },
+        blank: {
+          title: "表单占位栏",
+          type: "text",
+          form: {
+            blank: true
+          }
+        },
         gridSpan: {
           title: "grid跨列",
-          type: "text-area",
+          type: "textarea",
           form: {
             col: {
               style: { gridColumn: "span 2" } // grid 模式
@@ -78,7 +85,7 @@ export default function ({ expose }) {
         },
         flexSpan: {
           title: "flex跨列",
-          type: "text-area",
+          type: "textarea",
           search: { show: false },
           form: {
             show: compute((context) => {

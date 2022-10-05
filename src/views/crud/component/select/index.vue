@@ -1,6 +1,7 @@
 <template>
   <fs-page>
-    <fs-crud ref="crudRef" v-bind="crudBinding" />
+    <fs-crud ref="crudRef" v-bind="crudBinding" >
+    </fs-crud>
   </fs-page>
 </template>
 
@@ -10,7 +11,7 @@ import { useCrud } from "@fast-crud/fast-crud";
 import createCrudOptions from "./crud";
 import { useExpose } from "@fast-crud/fast-crud";
 export default defineComponent({
-  name: "FormSelect",
+  name: "ComponentSelect",
   setup() {
     // crud组件的ref
     const crudRef = ref();

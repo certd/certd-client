@@ -48,7 +48,7 @@ export default function ({ expose }) {
         },
         intro: {
           title: "简介",
-          type: "text-area",
+          type: "textarea",
           column: {
             ellipsis: true
           }
@@ -57,7 +57,7 @@ export default function ({ expose }) {
           title: "详情",
           type: "editor-ueditor",
           form: {
-            itemProps: { labelWidth: "0px" }
+            labelWidth: "0px"
           }
         }
       },

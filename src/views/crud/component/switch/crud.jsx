@@ -1,5 +1,4 @@
 import * as api from "./api";
-import { requestForMock } from "/src/api/service";
 import { dict, compute } from "@fast-crud/fast-crud";
 export default function ({ expose }) {
   const pageRequest = async (query) => {
@@ -47,14 +46,50 @@ export default function ({ expose }) {
             ]
           })
         },
+        notBool: {
+          title: "自定义value",
+          search: { show: true },
+          type: "dict-switch",
+          dict: dict({
+            data: [
+              { value: "1", label: "开启" },
+              { value: "2", label: "关闭" }
+            ]
+          }),
+          form: {
+            component: {
+              checkedValue: "1",
+              unCheckedValue: "2"
+            }
+          }
+        },
         cellSwitch: {
           title: "cell显示",
           search: { show: true },
           type: "dict-switch",
+          form: {
+            component: {
+              // onChange: compute((context) => {
+              //   //动态onChange方法测试
+              //   return () => {
+              //     console.log("onChange", context.form.cellSwitch);
+              //   };
+              // })
+            }
+          },
           column: {
             component: {
               name: "fs-dict-switch",
-              vModel: "checked"
+              vModel: "checked",
+              onChange: (value) => {
+                console.log("onChange", value);
+              }
+              // onChange: compute((context) => {
+              //   //动态onChange方法测试
+              //   return () => {
+              //     console.log("onChange", context.row.cellSwitch);
+              //   };
+              // })
             }
           },
           dict: dict({

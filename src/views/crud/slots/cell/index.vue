@@ -15,6 +15,16 @@
         创建时间：{{ dateFormat(scope.row.createDate) }}<br />
         修改时间：{{ dateFormat(scope.row.updateDate) }}
       </template>
+
+      <template #cell-rowHandle-left="scope">
+        <a-button class="row-handle-btn" size="small" danger @click="showScope(scope)">rowHandle-left插槽</a-button>
+      </template>
+      <template #cell-rowHandle-middle="scope">
+        <a-button class="row-handle-btn" size="small" danger @click="showScope(scope)">rowHandle-middle插槽</a-button>
+      </template>
+      <template #cell-rowHandle-right="scope">
+        <a-button class="row-handle-btn" size="small" danger @click="showScope(scope)">rowHandle-right插槽</a-button>
+      </template>
     </fs-crud>
   </fs-page>
 </template>
@@ -23,6 +33,7 @@
 import { defineComponent, ref, onMounted } from "vue";
 import { useCrud, useExpose } from "@fast-crud/fast-crud";
 import createCrudOptions from "./crud";
+import dayjs from "dayjs";
 export default defineComponent({
   name: "SlotsCell",
   setup() {
@@ -46,14 +57,18 @@ export default defineComponent({
     });
 
     function dateFormat(time, formatter = "YYYY-MM-DD") {
-      return time.format(formatter);
+      return dayjs(time).format(formatter);
     }
 
+    function showScope(scope) {
+      console.log("scope", scope);
+    }
     return {
       crudBinding,
       crudRef,
       radioDict,
-      dateFormat
+      dateFormat,
+      showScope
     };
   }
 });

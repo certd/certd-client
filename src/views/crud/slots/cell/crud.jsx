@@ -1,6 +1,6 @@
 import * as api from "./api";
 import { dict } from "@fast-crud/fast-crud";
-import moment from "moment";
+import dayjs from "dayjs";
 export default function ({ expose }) {
   const pageRequest = async (query) => {
     return await api.GetList(query);
@@ -28,6 +28,13 @@ export default function ({ expose }) {
         editRequest,
         delRequest
       },
+      rowHandle: {
+        buttons: {
+          edit: { dropdown: true },
+          remove: { dropdown: true }
+        },
+        width: 630
+      },
       columns: {
         id: {
           title: "ID",
@@ -53,7 +60,7 @@ export default function ({ expose }) {
             width: 300
           },
           valueBuilder({ key, row }) {
-            row[key] = moment(row[key]);
+            row[key] = dayjs(row[key]);
           }
         },
         updateDate: {
@@ -63,7 +70,7 @@ export default function ({ expose }) {
             show: false
           },
           valueBuilder({ key, row }) {
-            row[key] = moment(row[key]);
+            row[key] = dayjs(row[key]);
           }
         }
       }

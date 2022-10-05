@@ -14,7 +14,7 @@ export const crudResources = [
         path: "/crud/basis",
         redirect: "/crud/basis/i18n",
         meta: {
-          icon: "ion-disc-outline"
+          icon: "ion:disc-outline"
         },
         children: [
           {
@@ -24,16 +24,29 @@ export const crudResources = [
             component: "/crud/basis/compute/index.vue"
           },
           {
+            title: "动态计算-更多示例",
+            name: "BasisComputeMore",
+            path: "/crud/basis/compute-more",
+            component: "/crud/basis/compute-more/index.vue"
+          },
+          {
             title: "国际化",
             name: "BasisI18n",
             path: "/crud/basis/i18n",
             component: "/crud/basis/i18n/index.vue"
+          },
+          {
+            title: "ValueChange",
+            name: "BasisValueChange",
+            path: "/crud/basis/value-change",
+            component: "/crud/basis/value-change/index.vue"
+          },
+          {
+            title: "HelloWorld",
+            name: "FsCrudFirst",
+            path: "/crud/basis/first",
+            component: "/crud/basis/first/index.vue",
           }
-          // {
-          //   title: "debug",
-          //   path: "/crud/debug/select",
-          //   component: "/crud/debug/select/index.vue"
-          // }
         ]
       },
       {
@@ -42,7 +55,7 @@ export const crudResources = [
         path: "/crud/dict",
         redirect: "/crud/dict/single",
         meta: {
-          icon: "ion-book-outline"
+          icon: "ion:book-outline"
         },
         children: [
           {
@@ -71,12 +84,12 @@ export const crudResources = [
         path: "/crud/component",
         redirect: "/crud/component/text",
         meta: {
-          icon: "ion-cube-outline"
+          icon: "ion:cube-outline"
         },
         children: [
           {
             title: "文本输入(input)",
-            name: "ComponentInput",
+            name: "ComponentText",
             path: "/crud/component/text",
             component: "/crud/component/text/index.vue"
           },
@@ -169,6 +182,18 @@ export const crudResources = [
             name: "ComponentEditor",
             path: "/crud/component/editor",
             component: "/crud/component/editor/index.vue"
+          },
+          {
+            title: "图标",
+            name: "ComponentIcon",
+            path: "/crud/component/icon",
+            component: "/crud/component/icon/index.vue"
+          },
+          {
+            title: "JsonEditor",
+            name: "ComponentJson",
+            path: "/crud/component/json",
+            component: "/crud/component/json/index.vue"
           }
         ]
       },
@@ -178,7 +203,7 @@ export const crudResources = [
         path: "/crud/form",
         redirect: "/crud/form/layout",
         meta: {
-          icon: "ion-document-text-outline"
+          icon: "ion:document-text-outline"
         },
         children: [
           {
@@ -230,10 +255,58 @@ export const crudResources = [
             component: "/crud/form/custom-form/index.vue"
           },
           {
+            title: "字段帮助说明",
+            name: "FormHelper",
+            path: "/crud/form/helper",
+            component: "/crud/form/helper/index.vue"
+          },
+          {
+            title: "页面内部弹出表单",
+            name: "FormInner",
+            path: "/crud/form/inner",
+            component: "/crud/form/inner/index.vue",
+            meta: {
+              cache: true
+            }
+          },
+          {
+            title: "地区字典管理",
+            name: "FormInnerArea",
+            path: "/crud/form/inner/area",
+            component: "/crud/form/inner/area/index.vue",
+            meta: {
+              isMenu: false
+            }
+          },
+          {
+            title: "新页面编辑",
+            name: "FormNewPage",
+            path: "/crud/form/new-page",
+            component: "/crud/form/new-page/index.vue",
+            meta: {
+              cache: false
+            }
+          },
+          {
+            title: "新页面编辑表单",
+            name: "FormNewPageEdit",
+            path: "/crud/form/new-page/edit",
+            component: "/crud/form/new-page/edit.vue",
+            meta: {
+              isMenu: false
+            }
+          },
+          {
             title: "独立使用表单",
             name: "FormIndependent",
             path: "/crud/form/independent",
             component: "/crud/form/independent/index.vue"
+          },
+          {
+            title: "重置表单",
+            name: "FormReset",
+            path: "/crud/form/reset",
+            component: "/crud/form/reset/index.vue"
           }
         ]
       },
@@ -241,7 +314,7 @@ export const crudResources = [
         title: "表格特性",
         path: "/crud/feature",
         meta: {
-          icon: "ion-beer-outline"
+          icon: "ion:beer-outline"
         },
         redirect: "/crud/feature/dropdown",
         children: [
@@ -288,6 +361,12 @@ export const crudResources = [
             component: "/crud/feature/header-group/index.vue"
           },
           {
+            title: "合并单元格",
+            name: "FeatureMerge",
+            path: "/crud/feature/merge",
+            component: "/crud/feature/merge/index.vue"
+          },
+          {
             title: "序号",
             name: "FeatureIndex",
             path: "/crud/feature/index",
@@ -306,6 +385,12 @@ export const crudResources = [
             component: "/crud/feature/fixed/index.vue"
           },
           {
+            title: "不固定高度",
+            name: "FeatureHeight",
+            path: "/crud/feature/height",
+            component: "/crud/feature/height/index.vue"
+          },
+          {
             title: "可编辑",
             name: "FeatureEditable",
             path: "/crud/feature/editable",
@@ -316,6 +401,48 @@ export const crudResources = [
             name: "FeatureEditableRow",
             path: "/crud/feature/editable-row",
             component: "/crud/feature/editable-row/index.vue"
+          },
+          {
+            title: "查询框",
+            name: "FeatureSearch",
+            path: "/crud/feature/search",
+            component: "/crud/feature/search/index.vue"
+          },
+          {
+            title: "查询框多行模式",
+            name: "FeatureSearchMulti",
+            path: "/crud/feature/search-multi",
+            component: "/crud/feature/search-multi/index.vue"
+          },
+          {
+            title: "字段排序",
+            name: "FeatureColumnSort",
+            path: "/crud/feature/column-sort",
+            component: "/crud/feature/column-sort/index.vue"
+          },
+          {
+            title: "ValueBuilder",
+            name: "FeatureValueBuilder",
+            path: "/crud/feature/value-builder",
+            component: "/crud/feature/value-builder/index.vue"
+          },
+          {
+            title: "列设置",
+            name: "FeatureColumnsSet",
+            path: "/crud/feature/columns-set",
+            component: "/crud/feature/columns-set/index.vue"
+          },
+          {
+            title: "本地化编辑",
+            name: "FeatureLocal",
+            path: "/crud/feature/local",
+            component: "/crud/feature/local/index.vue"
+          },
+          {
+            title: "v-model",
+            name: "FeatureVModel",
+            path: "/crud/feature/v-model",
+            component: "/crud/feature/local-v-model/index.vue"
           }
         ]
       },
@@ -325,7 +452,7 @@ export const crudResources = [
         path: "/crud/slots",
         redirect: "/crud/slots/layout",
         meta: {
-          icon: "ion-extension-puzzle-outline"
+          icon: "ion:extension-puzzle-outline"
         },
         children: [
           {
@@ -366,7 +493,7 @@ export const crudResources = [
         path: "/crud/advanced",
         redirect: "/crud/advanced/linkage",
         meta: {
-          icon: "ion-flame-outline"
+          icon: "ion:flame-outline"
         },
         children: [
           {
@@ -382,10 +509,34 @@ export const crudResources = [
             component: "/crud/advanced/from-backend/index.vue"
           },
           {
+            title: "本地分页",
+            name: "AdvancedLocalPagination",
+            path: "/crud/advanced/local-pagination",
+            component: "/crud/advanced/local-pagination/index.vue"
+          },
+          {
             title: "嵌套子表格",
             name: "AdvancedNest",
             path: "/crud/advanced/nest",
             component: "/crud/advanced/nest/index.vue"
+          },
+          {
+            title: "对话框中显示crud",
+            name: "AdvancedInDialog",
+            path: "/crud/advanced/in-dialog",
+            component: "/crud/advanced/in-dialog/index.vue"
+          },
+          {
+            title: "修改布局",
+            name: "AdvancedLayout",
+            path: "/crud/advanced/layout",
+            component: "/crud/advanced/layout/index.vue"
+          },
+          {
+            title: "自定义布局",
+            name: "AdvancedCustomLayout",
+            path: "/crud/advanced/custom-layout",
+            component: "/crud/advanced/custom-layout/index.vue"
           }
         ]
       }

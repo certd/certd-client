@@ -44,7 +44,7 @@
             :menus="headerMenus"
           />
           <fs-locale class="btn" />
-          <fs-theme-set class="btn" />
+<!--          <fs-theme-set class="btn" />-->
           <fs-user-info class="btn" />
         </div>
       </a-layout-header>
@@ -53,7 +53,9 @@
         <router-view>
           <template #default="{ Component, route }">
             <transition name="fade-transverse">
-              <component :is="Component" :key="route.fullPath" />
+              <keep-alive :include="keepAlive">
+                <component :is="Component" :key="route.fullPath" />
+              </keep-alive>
             </transition>
           </template>
         </router-view>
@@ -112,6 +114,7 @@ export default {
 };
 </script>
 <style lang="less">
+@import "../style/theme/index.less";
 .fs-framework {
   height: 100%;
   overflow-x: hidden;
@@ -154,7 +157,7 @@ export default {
 
     & > .btn {
       &:hover {
-        // background-color: #fff;
+        background-color: #fff;
         color: @primary-color;
       }
     }

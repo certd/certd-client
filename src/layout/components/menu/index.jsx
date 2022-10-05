@@ -49,7 +49,7 @@ function useBetterScroll(enabled = true) {
       bsDestroy();
     });
     onOpenChange = async () => {
-      await nextTick();
+      console.log("onOpenChange");
       setTimeout(() => {
         bsRef.value?.refresh();
       }, 300);
@@ -85,7 +85,7 @@ export default defineComponent({
       open(item.key);
     }
 
-    const FsIconify = resolveComponent("FsIconify");
+    const FsIcon = resolveComponent("FsIcon");
 
     const buildMenus = (children) => {
       const slots = [];
@@ -97,7 +97,7 @@ export default defineComponent({
           if (sub?.meta?.icon) {
             return (
               <div class={"menu-item-title"}>
-                <FsIconify icon={sub.meta.icon} />
+                <FsIcon class={"anticon"} icon={sub.meta.icon} />
                 <span>{sub.title}</span>
               </div>
             );

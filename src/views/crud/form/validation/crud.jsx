@@ -7,7 +7,7 @@ export default function ({ expose }) {
       throw new Error("请输入密码");
     }
     if (getFormData().password2 !== "") {
-      getFormRef().$refs.formRef.validateField("password2");
+      getFormRef().getFormRef().validateFields(["password2"]);
     }
   };
   const validatePass2 = async (rule, value) => {
@@ -39,6 +39,14 @@ export default function ({ expose }) {
         editRequest,
         delRequest
       },
+      form: {
+        beforeSubmit(context) {
+          console.log("beforeSubmit", context);
+        },
+        afterSubmit(context) {
+          console.log("afterSubmit", context);
+        }
+      },
       columns: {
         name: {
           title: "姓名",
@@ -68,10 +76,10 @@ export default function ({ expose }) {
         },
         password: {
           title: "密码",
-          type: "text",
+          type: "password",
           column: {
             component: {
-              render() {
+              cellRender() {
                 return <span>******</span>;
               }
             }
@@ -85,7 +93,7 @@ export default function ({ expose }) {
         },
         password2: {
           title: "确认密码",
-          type: "text",
+          type: "password",
           column: { show: false },
           form: {
             rules: [

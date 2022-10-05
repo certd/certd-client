@@ -26,6 +26,7 @@ export default function ({ expose }) {
     selectedRowKeys, //返回给index.vue去使用
     crudOptions: {
       table: {
+        rowKey: "id",
         rowSelection: {
           selectedRowKeys: selectedRowKeys,
           onChange: onSelectChange,

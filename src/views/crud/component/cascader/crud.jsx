@@ -60,12 +60,14 @@ export default function ({ crudRef }) {
             value: "code",
             label: "name",
             isTree: true,
-            getNodes(values) {
+            prototype: true,
+            getNodesByValues(values) {
+              //给cell展示组件调用，根据value值获取节点，每行都会请求一次
               if (values == null) {
                 return [];
               }
               return requestForMock({
-                url: "/tree/GetNodesByValues",
+                url: "/mock/tree/GetNodesByValues",
                 params: { values }
               });
             }
@@ -75,13 +77,13 @@ export default function ({ crudRef }) {
               vModel: "value",
               options: [
                 {
-                  value: "11",
-                  label: "北京",
+                  code: "11",
+                  name: "北京",
                   isLeaf: false
                 },
                 {
-                  value: "12",
-                  label: "天津",
+                  code: "12",
+                  name: "天津",
                   isLeaf: false
                 }
               ],
@@ -92,18 +94,17 @@ export default function ({ crudRef }) {
 
                 const ret = await requestForMock({
                   url: "/mock/tree/GetTreeChildrenByParentId",
-                  params: { parentId: targetOption.value }
+                  params: { parentId: targetOption.code }
                 });
                 targetOption.loading = false;
                 const list = [];
                 for (const item of ret) {
                   list.push({
-                    value: item.code,
-                    label: item.name,
+                    code: item.code,
+                    name: item.name,
                     isLeaf: item.leaf === true
                   });
                 }
-                console.log("layz loaded", list);
                 targetOption.children = list;
                 //options.value = [...options.value];
               },

@@ -1,6 +1,6 @@
 <template>
   <fs-page>
-    <fs-crud ref="crudRef" v-bind="crudBinding" />
+    <fs-crud ref="crudRef" v-bind="crudBinding"> </fs-crud>
   </fs-page>
 </template>
 
@@ -10,7 +10,7 @@ import { useCrud } from "@fast-crud/fast-crud";
 import createCrudOptions from "./crud";
 import { useExpose } from "@fast-crud/fast-crud";
 export default defineComponent({
-  name: "FormUploader",
+  name: "ComponentUploader",
   setup() {
     // crud组件的ref
     const crudRef = ref();
@@ -33,7 +33,10 @@ export default defineComponent({
 
     return {
       crudBinding,
-      crudRef
+      crudRef,
+      uploadChange(a, b, c) {
+        console.log("upload change", a, b, c);
+      }
     };
   }
 });

@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { AllUploadSuccessValidator } from "@fast-crud/fast-extends";
 import { dict } from "@fast-crud/fast-crud";
+import { nextTick } from "vue";
 export default function ({ expose }) {
   const pageRequest = async (query) => {
     return await api.GetList(query);
@@ -24,6 +25,15 @@ export default function ({ expose }) {
         editRequest,
         delRequest
       },
+      form: {
+        wrapper: {
+          async onOpened() {
+            // 异步组件实例的获取
+            const componentRef = await expose.getFormComponentRef("file", true);
+            console.log("componentRef", componentRef);
+          }
+        }
+      },
       columns: {
         id: {
           title: "ID",
@@ -41,8 +51,19 @@ export default function ({ expose }) {
           type: "file-uploader",
           form: {
             component: {
+              multiple: true, //可选择多个
               uploader: {
                 type: "form"
+              }
+            }
+          },
+          column: {
+            component: {
+              // 如果你后台返回的值不是一个完整的url，那么展示时就无法显示和点击
+              // 需要你本地根据value构建文件的url。
+              // 支持异步
+              async buildUrl(value) {
+                return value;
               }
             }
           }
@@ -58,6 +79,18 @@ export default function ({ expose }) {
               }
             },
             helper: "最大可上传1个文件"
+          }
+        },
+        avatar: {
+          title: "头像上传",
+          type: "avatar-uploader",
+          form: {
+            component: {
+              uploader: {
+                type: "form"
+              }
+            },
+            helper: "就是照片墙limit=1的效果"
           }
         },
         cropper: {
@@ -97,6 +130,16 @@ export default function ({ expose }) {
             helper: "大小不能超过1k"
           }
         },
+        accept: {
+          title: "限制类型",
+          type: "file-uploader",
+          form: {
+            component: {
+              accept: "*.jpg,*.png"
+            },
+            helper: "只能上传jpg或者png"
+          }
+        },
         validation: {
           title: "校验",
           type: "file-uploader",
@@ -113,24 +156,6 @@ export default function ({ expose }) {
                 type: "form"
               }
             }
-          }
-        },
-        statusRemote: {
-          title: "单选",
-          search: {
-            show: true,
-            rules: null,
-            component: {
-              style: { width: "100px" }
-            }
-          },
-          type: "dict-select",
-          dict: dict({
-            url: "/mock/dicts/OpenStatusEnum?simple"
-          }),
-          form: {
-            helper: "测试单选与图片组件同时存在时没有下拉框的bug",
-            rules: [{ required: true, message: "请选择一个选项" }]
           }
         }
       }
