@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { dict } from "@fast-crud/fast-crud";
 import { useI18n } from "vue-i18n";
+
 export default function ({ expose }) {
   const { t } = useI18n();
   const pageRequest = async (query) => {
@@ -25,6 +26,12 @@ export default function ({ expose }) {
         editRequest,
         delRequest
       },
+      table: {
+        show: false
+      },
+      toolbar: {
+        show: false
+      },
       columns: {
         id: {
           title: "ID",
@@ -40,7 +47,12 @@ export default function ({ expose }) {
         domains: {
           title: "域名",
           type: ["dict-select", "colspan"],
-          search: { show: false },
+          search: {
+            show: true,
+            component: {
+              name: "a-input"
+            }
+          },
           form: {
             component: {
               mode: "tags"

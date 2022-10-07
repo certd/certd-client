@@ -39,3 +39,11 @@ export function GetObj(id) {
     params: { id }
   });
 }
+
+export function GetDetail(id) {
+  return request({
+    url: apiPrefix + "/detail",
+    method: "post",
+    params: { id }
+  });
+}
