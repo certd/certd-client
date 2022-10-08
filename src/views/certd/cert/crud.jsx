@@ -32,6 +32,22 @@ export default function ({ expose }) {
       toolbar: {
         show: false
       },
+      form: {
+        group: {
+          type: "collapse", // tab
+          accordion: false, //手风琴模式
+          groups: {
+            base: {
+              header: "证书基本信息",
+              columns: ["domains", "email", "certIssuerId", "challengeType", "challengeAccessId", "remark"]
+            },
+            info: {
+              header: "证书CSR信息",
+              columns: ["country", "state", "locality", "organization", "organizationUnit"]
+            }
+          }
+        }
+      },
       columns: {
         id: {
           title: "ID",

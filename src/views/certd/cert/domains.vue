@@ -1,7 +1,7 @@
 <template>
   <a-tooltip :title="value">
-    <a-badge :count="list.length - 1" color="green">
-      <component :is="type" class="domain-item">{{ list[0] }}</component>
+    <a-badge :count="badgeCount" color="green">
+      <component :is="type" color="cyan" class="domain-item">{{ list[0] }}</component>
     </a-badge>
     <!--    <a-tag v-if="list.length > 1" a-tag>+{{ list.length - 1 }}</a-tag>-->
   </a-tooltip>
@@ -27,8 +27,15 @@ export default defineComponent({
       return domains.split(",");
     });
 
+    const badgeCount = computed(() => {
+      if (list.value.length <= 1) {
+        return 0;
+      }
+      return "+" + (list.value.length - 1);
+    });
     return {
-      list
+      list,
+      badgeCount
     };
   }
 });

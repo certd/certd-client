@@ -11,25 +11,30 @@
           :data-source="crudBinding.data"
           :loading="crudBinding.table.loading"
         >
-          <template #renderItem="{ item }">
+          <template #renderItem="{ index, item }">
             <a-list-item>
-              <a-card hoverable @click="goDetail(item)">
+              <a-card hoverable>
                 <template #title>
                   <fs-icon icon="ion:ribbon-outline" style="margin-right: 10px"></fs-icon>
-                  证书
+                  证书 {{ item.id }}
                 </template>
-                <template #extra> <a-tag color="green">成功</a-tag> </template>
+                <template #extra>
+                  <a-tooltip title="上次运行：2022-01-01 11:11:11">
+                    <a-tag color="green">成功</a-tag>
+                  </a-tooltip>
+                </template>
                 <div>
-                  <div>证书域名：<certd-domains :value="item.domains" type="span"></certd-domains></div>
-                  <div>上次运行：2022-01-01 11:11:11</div>
-                  <div>运行结果：<a-tag color="green">成功</a-tag></div>
+                  <div>证书域名：<certd-domains :value="item.domains"></certd-domains></div>
                 </div>
                 <template #actions>
-                  <a-tooltip title="详情">
-                    <fs-icon icon="ion:eye" />
-                  </a-tooltip>
                   <a-tooltip title="执行">
-                    <fs-icon icon="ion:play" />
+                    <fs-icon color="blue" icon="ion:play" />
+                  </a-tooltip>
+                  <a-tooltip title="详情">
+                    <fs-icon icon="ion:eye" @click="goDetail(item)" />
+                  </a-tooltip>
+                  <a-tooltip title="删除">
+                    <fs-icon class="red" icon="ion:trash" @click="deleteCert(item, index)" />
                   </a-tooltip>
                 </template>
               </a-card>
@@ -46,9 +51,10 @@ import { defineComponent, ref, onMounted } from "vue";
 import { useCrud } from "@fast-crud/fast-crud";
 import createCrudOptions from "./crud";
 import { useExpose } from "@fast-crud/fast-crud";
-import { message } from "ant-design-vue";
+import { message, Modal, notification } from "ant-design-vue";
 import CertdDomains from "./domains.vue";
 import { useRouter } from "vue-router";
+import * as api from "./api";
 export default defineComponent({
   name: "CertdCert",
   components: { CertdDomains },
@@ -79,11 +85,16 @@ export default defineComponent({
     function goDetail(item) {
       router.push({ path: "/certd/cert/detail", query: { id: item.id } });
     }
+
+    function deleteCert(item, index) {
+      expose.doRemove({ index, row: item });
+    }
     return {
       crudBinding,
       crudRef,
       showDemo,
-      goDetail
+      goDetail,
+      deleteCert
     };
   }
 });
