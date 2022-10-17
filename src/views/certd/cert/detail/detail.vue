@@ -5,34 +5,36 @@
     </template>
     <div v-if="detailRef" class="cert-detail">
       <div class="cert-detail-left">
-        <a-card class="cert-info" title="证书信息">
-          <a-descriptions>
+        <div class="content-box">
+          <a-descriptions title="证书信息">
             <a-descriptions-item label="域名"
               ><certd-domains :value="detailRef.cert.domains"></certd-domains
             ></a-descriptions-item>
             <a-descriptions-item label="邮箱">1810000000</a-descriptions-item>
             <a-descriptions-item label="其它信息">Hangzhou, Zhejiang</a-descriptions-item>
           </a-descriptions>
-        </a-card>
+        </div>
 
-        <div class="cert-deploy">
-          <a-card title="自动部署">
-            <a-list
-              :grid="{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4, xxl: 4, xxxl: 6 }"
-              :data-source="detailRef.deploy"
-            >
-              <template #renderItem="{ item }">
-                <a-list-item>
-                  <a-card hoverable>
-                    <template #title>
-                      {{ item.name }}
-                    </template>
-                    <template #extra> <a-tag color="green">成功</a-tag> </template>
-                  </a-card>
-                </a-list-item>
-              </template>
-            </a-list>
-          </a-card>
+        <div class="content-box">
+          <div class="cert-deploy">
+            <a-card title="自动部署">
+              <a-list
+                :grid="{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4, xxl: 4, xxxl: 6 }"
+                :data-source="detailRef.deploy"
+              >
+                <template #renderItem="{ item }">
+                  <a-list-item>
+                    <a-card hoverable>
+                      <template #title>
+                        {{ item.name }}
+                      </template>
+                      <template #extra> <a-tag color="green">成功</a-tag> </template>
+                    </a-card>
+                  </a-list-item>
+                </template>
+              </a-list>
+            </a-card>
+          </div>
         </div>
       </div>
 
@@ -80,14 +82,18 @@ export default defineComponent({
 </script>
 <style lang="less">
 .page-cert-detail {
-  .cert-deploy {
-    margin-top: 20px;
+  .content-box {
+    padding: 20px;
   }
   .cert-detail {
-    padding: 20px;
     display: flex;
     .cert-detail-left {
       width: 70%;
+
+      .cert-deploy {
+        margin-top: 20px;
+        background-color: #eee;
+      }
     }
     .cert-log {
       width: 30%;
