@@ -1,8 +1,6 @@
-import { defineAsyncComponent } from "vue";
-const AsyncHighLight = defineAsyncComponent(() => import("./highlight/index.vue"));
-
+import ComponentRender from "./component-render.vue";
 export default {
   install(app) {
-    app.component("FsHighlight", AsyncHighLight);
+    app.component("ComponentRender", ComponentRender);
   }
 };

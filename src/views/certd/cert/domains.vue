@@ -1,10 +1,12 @@
 <template>
-  <a-tooltip :title="value">
+  <a-tooltip v-if="!expand" :title="value">
     <a-badge :count="badgeCount" color="green">
       <component :is="type" color="cyan" class="domain-item">{{ list[0] }}</component>
     </a-badge>
-    <!--    <a-tag v-if="list.length > 1" a-tag>+{{ list.length - 1 }}</a-tag>-->
   </a-tooltip>
+  <div v-else>
+    <component :is="type" v-for="item of list" color="cyan" class="domain-item">{{ item }}</component>
+  </div>
 </template>
 
 <script>
@@ -19,6 +21,10 @@ export default defineComponent({
     type: {
       type: String,
       default: "a-tag"
+    },
+    expand: {
+      type: Boolean,
+      default: false
     }
   },
   setup(props) {

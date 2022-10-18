@@ -24,7 +24,7 @@
                   </a-tooltip>
                 </template>
                 <div>
-                  <div>证书域名：<certd-domains :value="item.domains"></certd-domains></div>
+                  <div @click="goDetail(item)">证书域名：<certd-domains :value="item.domains"></certd-domains></div>
                 </div>
                 <template #actions>
                   <a-tooltip title="执行">

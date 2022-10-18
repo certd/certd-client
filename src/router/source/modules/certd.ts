@@ -21,7 +21,7 @@ export const certdResources = [
             title: "证书详情",
             name: "CertdCertDetail",
             path: "/certd/cert/detail",
-            component: "/certd/cert/detail/detail.vue",
+            component: "/certd/cert/detail.vue",
             meta: {
               isMenu: false
             }
