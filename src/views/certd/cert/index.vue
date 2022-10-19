@@ -33,6 +33,9 @@
                   <a-tooltip title="详情">
                     <fs-icon icon="ion:eye" @click="goDetail(item)" />
                   </a-tooltip>
+                  <a-tooltip title="编辑">
+                    <fs-icon icon="ion:edit" @click="openEditDialog(item, index)" />
+                  </a-tooltip>
                   <a-tooltip title="删除">
                     <fs-icon class="red" icon="ion:trash" @click="deleteCert(item, index)" />
                   </a-tooltip>
@@ -89,11 +92,15 @@ export default defineComponent({
     function deleteCert(item, index) {
       expose.doRemove({ index, row: item });
     }
+    function openEditDialog(item, index) {
+      expose.openEdit({ index, row: item });
+    }
     return {
       crudBinding,
       crudRef,
       showDemo,
       goDetail,
+      openEditDialog,
       deleteCert
     };
   }

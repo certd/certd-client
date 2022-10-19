@@ -44,7 +44,7 @@
             :menus="headerMenus"
           />
           <fs-locale class="btn" />
-<!--          <fs-theme-set class="btn" />-->
+          <!--          <fs-theme-set class="btn" />-->
           <fs-user-info class="btn" />
         </div>
       </a-layout-header>
@@ -69,7 +69,7 @@
 </template>
 
 <script>
-import { computed, ref } from "vue";
+import { computed, onErrorCaptured, ref } from "vue";
 import FsMenu from "./components/menu/index.jsx";
 import FsLocale from "./components/locale/index.vue";
 import FsSourceLink from "./components/source-link/index.vue";
@@ -102,6 +102,7 @@ export default {
     function asideCollapsedToggle() {
       asideCollapsed.value = !asideCollapsed.value;
     }
+
     return {
       frameworkMenus,
       headerMenus,

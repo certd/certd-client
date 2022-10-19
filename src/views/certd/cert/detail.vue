@@ -5,7 +5,7 @@
         <a-page-header title="证书申请" sub-title="可以将多个域名打到一个证书上">
           <template #extra>
             <a-button key="apply" type="primary">立即申请</a-button>
-            <a-button key="edit" type="primary">编辑证书</a-button>
+            <a-button key="edit" type="primary" @click="openCertEditDialog">编辑证书</a-button>
           </template>
           <a-descriptions>
             <a-descriptions-item label="域名"
@@ -14,6 +14,8 @@
             <a-descriptions-item label="邮箱">1810000000</a-descriptions-item>
             <a-descriptions-item label="其它信息">Hangzhou, Zhejiang</a-descriptions-item>
           </a-descriptions>
+
+          <fs-form-wrapper ref="certEditDialogRef" v-bind="certEditDialogOptions" />
         </a-page-header>
         <a-page-header title="自动部署" sub-title="证书申请成功后，自动运行以下部署任务">
           <template #extra>
@@ -78,6 +80,29 @@
 import { defineComponent, ref, onMounted, computed } from "vue";
 import { useRoute } from "vue-router";
 import CertdDomains from "/src/views/certd/cert/domains.vue";
+import { useColumns } from "@fast-crud/fast-crud";
+import createCrudOptions from "./crud";
+
+function createFormOptionsFromCrudOptions() {
+  const { buildFormOptions } = useColumns();
+  //可以直接复用crud.js
+  const { crudOptions } = createCrudOptions({});
+  return buildFormOptions(crudOptions);
+}
+
+function useCertEditDialog() {
+  const certEditDialogRef = ref();
+  const certEditDialogOptions = ref(createFormOptionsFromCrudOptions());
+  function openCertEditDialog() {
+    certEditDialogRef.value.open(certEditDialogOptions.value);
+  }
+  return {
+    certEditDialogRef,
+    openCertEditDialog,
+    certEditDialogOptions
+  };
+}
+
 export default defineComponent({
   name: "CertdCertDetail",
   components: { CertdDomains },
@@ -114,7 +139,8 @@ export default defineComponent({
     const tabActive = ref("deploy");
     return {
       detailRef,
-      tabActive
+      tabActive,
+      ...useCertEditDialog()
     };
   }
 });

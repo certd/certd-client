@@ -2,22 +2,29 @@ import * as api from "./api";
 import { compute, dict } from "@fast-crud/fast-crud";
 import { useI18n } from "vue-i18n";
 import AccessSelector from "./components/access-selector.vue";
-import { shallowRef } from "vue";
+import { ref, shallowRef } from "vue";
+import { useRouter } from "vue-router";
 export default function ({ expose }) {
+  const router = useRouter();
   const { t } = useI18n();
+  const lastResRef = ref();
   const pageRequest = async (query) => {
     return await api.GetList(query);
   };
   const editRequest = async ({ form, row }) => {
     form.id = row.id;
-    return await api.UpdateObj(form);
+    const res = await api.UpdateObj(form);
+    lastResRef.value = res;
+    return res;
   };
   const delRequest = async ({ row }) => {
     return await api.DelObj(row.id);
   };
 
   const addRequest = async ({ form }) => {
-    return await api.AddObj(form);
+    const res = await api.AddObj(form);
+    lastResRef.value = res;
+    return res;
   };
   let DNSProviderTypeDictRef = dict({
     data: [
@@ -42,6 +49,13 @@ export default function ({ expose }) {
       form: {
         wrapper: {
           width: "1050px"
+        },
+        afterSubmit({ mode, form }) {
+          if (mode === "add") {
+            //跳转到详情页
+            console.log("add success:", form);
+            router.push({ path: "cert/detail", query: { id: lastResRef.value.id } });
+          }
         },
         group: {
           type: "collapse", // tab
@@ -152,13 +166,14 @@ export default function ({ expose }) {
         },
         challengeAccessId: {
           title: "DNS授权",
-          type: "dict-select",
+          type: "text",
           form: {
             component: {
               name: shallowRef(AccessSelector),
               type: compute(({ form }) => {
                 return form.challengeDnsType;
-              })
+              }),
+              vModel: "modelValue"
             },
             rules: [{ required: true, message: "请选择DNS授权" }]
           }
