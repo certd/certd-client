@@ -21,6 +21,7 @@ export async function GetList(query) {
       if (field.component.name === "a-input") {
         field.component.vModel = "value";
       }
+      field.key = key;
       if (field.required) {
         delete field.required;
         if (field.rules == null) {

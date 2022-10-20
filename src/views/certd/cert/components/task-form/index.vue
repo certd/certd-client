@@ -47,22 +47,27 @@
           :label-col="labelCol"
           :wrapper-col="wrapperCol"
         >
-          <a-form-item label="任务名称" name="title" :rules="rules.name">
-            <a-input v-model:value="currentTask.title" placeholder="请输入任务名称"></a-input>
-          </a-form-item>
-
           <fs-form-item
-            v-for="(item, key) in currentPlugin.input"
-            :key="key"
-            v-model="currentTask[key]"
-            :item="item"
+            v-model="currentTask.title"
+            :item="{
+              title: '任务名称',
+              key: 'title',
+              component: {
+                name: 'a-input',
+                vModel: 'value'
+              },
+              rules: [{ required: true, message: '此项必填' }]
+            }"
             :get-context-fn="blankFn"
           />
+          <template v-for="(item, key) in currentPlugin.input" :key="key">
+            <fs-form-item v-model="currentTask[key]" :item="item" :get-context-fn="blankFn" />
+          </template>
         </a-form>
 
         <template #footer>
           <a-form-item :wrapper-col="{ span: 14, offset: 4 }">
-            <a-button type="primary" html-type="submit" @click="taskSave"> 确定 </a-button>
+            <a-button type="primary" @click="taskSave"> 确定 </a-button>
           </a-form-item>
         </template>
       </d-container>
@@ -181,8 +186,13 @@ function useTaskForm(context) {
 
   const taskSave = async (e) => {
     console.log("currentTaskSave", currentTask.value);
-    debugger;
-    await taskFormRef.value.validate();
+    try {
+      await taskFormRef.value.validate();
+    } catch (e) {
+      console.error("表单验证失败:", e);
+      return;
+    }
+
     callback.value("save", currentTask.value);
     taskDrawerClose();
   };
