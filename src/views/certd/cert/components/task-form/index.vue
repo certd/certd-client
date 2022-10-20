@@ -8,7 +8,7 @@
   >
     <template #title>
       编辑任务
-      <a-button @click="taskDelete()">
+      <a-button v-if="mode === 'edit'" @click="taskDelete()">
         <template #icon><DeleteOutlined /></template>
       </a-button>
     </template>
@@ -51,12 +51,18 @@
             <a-input v-model:value="currentTask.title" placeholder="请输入任务名称"></a-input>
           </a-form-item>
 
-          <fs-form-item v-for="(item, key) in currentPlugin.input" :key="key" :item="item" :get-context-fn="blankFn" />
+          <fs-form-item
+            v-for="(item, key) in currentPlugin.input"
+            :key="key"
+            v-model="currentTask[key]"
+            :item="item"
+            :get-context-fn="blankFn"
+          />
         </a-form>
 
         <template #footer>
           <a-form-item :wrapper-col="{ span: 14, offset: 4 }">
-            <a-button type="primary" @click="taskSave"> 确定 </a-button>
+            <a-button type="primary" html-type="submit" @click="taskSave"> 确定 </a-button>
           </a-form-item>
         </template>
       </d-container>
@@ -69,6 +75,13 @@ import { message } from "ant-design-vue";
 import * as pluginsApi from "./api";
 import { ref } from "vue";
 import _ from "lodash-es";
+
+const defaultInputDefine = {
+  component: {
+    name: "a-input",
+    vModel: "value"
+  }
+};
 /**
  *  task drawer
  * @returns
@@ -77,15 +90,14 @@ function useTaskForm(context) {
   const taskPluginDefineList = ref([]);
   const onCreated = async () => {
     const plugins = await pluginsApi.GetList();
-    console.log("plugins", plugins);
     taskPluginDefineList.value = plugins;
   };
 
   onCreated();
 
-  const currentTask = ref({ title: undefined });
-  const currentTaskIndex = ref();
-  const currentDeploy = ref();
+  const mode = ref("add");
+  const callback = ref();
+  const currentTask = ref({ title: undefined, props: {} });
   const currentPlugin = ref(null);
   const taskFormRef = ref(null);
   const taskDrawerVisible = ref(false);
@@ -98,20 +110,17 @@ function useTaskForm(context) {
       }
     ]
   });
-  const taskAdd = (deploy) => {
-    const task = { title: "新任务", type: undefined, _isAdd: true };
-    currentDeploy.value = deploy;
-    currentDeploy.value.tasks.push(task);
-    const index = deploy.tasks.length - 1;
-    currentTask.value = deploy.tasks[index];
-    currentTaskIndex.value = index;
+  const taskAdd = (emit) => {
+    mode.value = "add";
+    currentTask.value = { title: "新任务", type: undefined, _isAdd: true, props: {} };
+    callback.value = emit;
     taskDrawerShow();
     console.log("currentTaskTypeChanged:", currentTask.value);
   };
 
   const taskTypeSelected = (item) => {
     currentTask.value.type = item.name;
-    currentTask.value.title = item.label;
+    currentTask.value.title = item.title;
     console.log("currentTaskTypeChanged:", currentTask.value);
   };
 
@@ -146,11 +155,11 @@ function useTaskForm(context) {
     console.log("taskDrawerOnAfterVisibleChange", val);
   };
 
-  const taskEdit = (deploy, task, index) => {
-    currentTask.value = flatData(_.cloneDeep(task));
+  const taskEdit = (task, emit) => {
+    mode.value = "edit";
+    callback.value = emit;
+    currentTask.value = _.cloneDeep(task);
     console.log("currentTaskEdit", currentTask.value);
-    currentTaskIndex.value = index;
-    currentDeploy.value = deploy;
     changeCurrentPlugin(currentTask.value);
 
     taskDrawerShow();
@@ -158,62 +167,28 @@ function useTaskForm(context) {
 
   const changeCurrentPlugin = (task) => {
     const taskType = task.type;
-    const currentPlugins = taskPluginDefineList.value.filter((p) => {
+    const curPlug = taskPluginDefineList.value.find((p) => {
       return p.name === taskType;
     });
-    if (currentPlugins.length <= 0) {
-      task.type = undefined;
-      task._isAdd = true;
-      // throw new Error('未知插件：' + taskType)
+    if (curPlug) {
+      task.type = taskType;
+      task._isAdd = false;
+      currentPlugin.value = curPlug;
     }
-    currentPlugin.value = currentPlugins[0];
 
-    console.log("currentTaskTypeChanged:", currentTask.value);
+    console.log("currentTaskTypeChanged:", currentTask.value, currentPlugin.value);
   };
 
-  const flatData = (obj, parentKey = "", member = obj) => {
-    _.forEach(member, (value, key) => {
-      const pathKey = parentKey + key;
-      if (!_.isArray(value) && _.isObjectLike(value)) {
-        parentKey = pathKey + ".";
-        flatData(obj, parentKey, value);
-
-        if (parentKey === "") {
-          delete obj[key];
-        }
-      } else {
-        obj[pathKey] = value;
-      }
-    });
-    return obj;
-  };
-
-  const unFlatData = (obj) => {
-    const newObj = {};
-    _.merge(newObj, obj);
-    for (const key in obj) {
-      const value = obj[key];
-      if (key.indexOf(".") >= 0) {
-        delete newObj[key];
-        _.set(newObj, key, value);
-      }
-    }
-    return newObj;
-  };
   const taskSave = async (e) => {
-    console.log("currentTaskSave", currentTask.value, currentTaskIndex.value);
-    e.preventDefault();
+    console.log("currentTaskSave", currentTask.value);
+    debugger;
     await taskFormRef.value.validate();
-    const newTask = unFlatData(currentTask.value);
-    currentDeploy.value.tasks[currentTaskIndex.value] = newTask;
-    // context.emit('update', newTask)
+    callback.value("save", currentTask.value);
     taskDrawerClose();
   };
 
   const taskDelete = () => {
-    if (currentTaskIndex.value != null) {
-      currentDeploy.value.tasks.splice(currentTaskIndex.value, 1);
-    }
+    callback.value("delete");
     taskDrawerClose();
   };
 
@@ -225,13 +200,13 @@ function useTaskForm(context) {
     taskTypeSave,
     taskPluginDefineList,
     taskFormRef,
+    mode,
     taskAdd,
     taskEdit,
     taskDrawerShow,
     taskDrawerVisible,
     taskDrawerOnAfterVisibleChange,
     currentTask,
-    currentTaskIndex,
     currentPlugin,
     taskSave,
     taskDelete,

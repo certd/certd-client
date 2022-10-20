@@ -32,22 +32,23 @@ export default defineComponent({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
     const { resetCrudOptions } = useCrud({ expose, crudOptions });
     // 你可以调用此方法，重新初始化crud配置
-    // resetCrudOptions(options)
-
+    function onTypeChanged(value) {
+      typeRef.value = value;
+      expose.setSearchFormData({ form: { type: value }, mergeForm: true });
+      expose.doRefresh();
+    }
     watch(
       () => {
         return props.type;
       },
       (value) => {
-        typeRef.value = value;
-        expose.setSearchFormData({ form: { type: value }, mergeForm: true });
-        expose.doRefresh();
+        console.log("access type changed:", value);
+        onTypeChanged(value);
       }
     );
     // 页面打开后获取列表数据
     onMounted(() => {
-      expose.setSearchFormData({ form: { type: props.type }, mergeForm: true });
-      expose.doRefresh();
+      onTypeChanged(props.type);
     });
 
     return {

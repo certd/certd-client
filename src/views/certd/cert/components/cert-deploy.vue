@@ -45,7 +45,7 @@
           </div>
           <div v-for="(task, iindex) of deploy.tasks" :key="iindex" class="task-item-wrapper">
             <ArrowRightOutlined class="task-next-icon" />
-            <a-button class="task-item" shape="round" @click="taskEdit(deploy, task, index)">
+            <a-button class="task-item" shape="round" @click="taskEdit(deploy, task, iindex)">
               <ThunderboltOutlined />
               {{ task.title }}
             </a-button>
@@ -103,11 +103,22 @@ function useDeploy(deployRef) {
 function useTask(isEdit) {
   const taskFormRef = ref(null);
   const taskAdd = (deploy) => {
-    taskFormRef.value.taskAdd(deploy);
+    taskFormRef.value.taskAdd((type, value) => {
+      if (type === "save") {
+        deploy.tasks.push(value);
+      }
+    });
   };
   const taskEdit = (deploy, task, index) => {
-    if (isEdit) {
-      taskFormRef.value.taskEdit(deploy, task, index);
+    if (isEdit.value) {
+      taskFormRef.value.taskEdit(task, (type, value) => {
+        if (type === "delete") {
+          deploy.tasks.splice(index, 1);
+        } else if (type === "save") {
+          deploy.tasks[index] = value;
+        }
+        console.log("deploy", deploy);
+      });
     }
   };
   return { taskAdd, taskEdit, taskFormRef };
@@ -160,7 +171,7 @@ export default defineComponent({
       cancel,
       isEdit,
       ...useDeploy(deployRef),
-      ...useTask()
+      ...useTask(isEdit)
     };
   }
 });

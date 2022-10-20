@@ -3,7 +3,7 @@
     <span v-if="target.name" class="mlr-5">{{ target.name }}</span>
     <span v-else class="mlr-5 gray">请选择</span>
     <a-button @click="chooseForm.open">选择</a-button>
-    <a-form-item-rest>
+    <a-form-item-rest v-if="chooseForm.show">
       <a-modal v-model:visible="chooseForm.show" title="选择授权提供者" width="700px" @ok="chooseForm.ok">
         <div style="height: 400px; position: relative">
           <cert-access-modal v-model="selectedId" :type="type"></cert-access-modal>

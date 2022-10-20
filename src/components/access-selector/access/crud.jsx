@@ -29,6 +29,9 @@ export default function ({ expose, props, ctx }) {
   let DNSProviderTypeDictRef = dict({
     url: "/certd/access/dnsProviderTypeDict"
   });
+  let AccessTypeDictRef = dict({
+    url: "/certd/access/accessTypeDict"
+  });
   const selectedRowKey = ref([props.modelValue]);
   // watch(
   //   () => {
@@ -130,7 +133,7 @@ export default function ({ expose, props, ctx }) {
         type: {
           title: "类型",
           type: "dict-select",
-          dict: DNSProviderTypeDictRef,
+          dict: AccessTypeDictRef,
           search: {
             show: false
           },
