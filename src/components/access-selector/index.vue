@@ -15,7 +15,7 @@
 
 <script>
 import { defineComponent, reactive, ref, watch } from "vue";
-import * as api from "./api";
+import * as api from "./access/api";
 import CertAccessModal from "./access/index.vue";
 
 export default defineComponent({
@@ -37,13 +37,17 @@ export default defineComponent({
     const selectedId = ref();
     async function refreshTarget(value) {
       selectedId.value = value;
-      target.value = await api.GetObj(value);
+      if (value > 0) {
+        target.value = await api.GetObj(value);
+      }
     }
     watch(
       () => {
         return props.modelValue;
       },
       async (value) => {
+        selectedId.value = null;
+        target.value = {};
         if (value == null) {
           return;
         }
@@ -54,11 +58,8 @@ export default defineComponent({
       }
     );
 
-    const accessList = ref([]);
     const providerDefine = ref({});
-    async function refreshAccessList(value) {
-      accessList.value = await api.GetList(value);
-    }
+
     async function refreshProviderDefine(type) {
       providerDefine.value = await api.GetProviderDefine(type);
     }
@@ -67,7 +68,6 @@ export default defineComponent({
         return props.type;
       },
       async (value) => {
-        await refreshAccessList(value);
         await refreshProviderDefine(value);
       },
       {
@@ -82,52 +82,17 @@ export default defineComponent({
       },
       ok: () => {
         chooseForm.show = false;
+        console.log("choose ok:", selectedId.value);
         refreshTarget(selectedId.value);
         ctx.emit("update:modelValue", selectedId.value);
-      }
-    });
-
-    // access crud
-    const editForm = reactive({
-      data: ref({ type: props.type }),
-      show: false,
-      rules: {
-        name: [
-          {
-            type: "string",
-            required: true,
-            message: "请输入名称"
-          }
-        ]
-      },
-      open(id) {
-        editForm.show = true;
-        if (id > 0) {
-          editForm.data.value = api.GetObj(id);
-        }
-      },
-      async delete(id) {
-        await api.DelObj(id);
-        refreshAccessList();
-      },
-      async ok() {
-        if (editForm.data.id > 0) {
-          await api.UpdateObj(editForm.data);
-        } else {
-          await api.AddObj(editForm.data);
-        }
-        editForm.show = false;
-        refreshAccessList();
       }
     });
 
     return {
       target,
       selectedId,
-      accessList,
       providerDefine,
-      chooseForm,
-      editForm
+      chooseForm
     };
   }
 });

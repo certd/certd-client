@@ -1,9 +1,9 @@
 import * as api from "./api";
 import { compute, dict } from "@fast-crud/fast-crud";
 import { useI18n } from "vue-i18n";
-import AccessSelector from "./components/access-selector.vue";
 import { ref, shallowRef } from "vue";
 import { useRouter } from "vue-router";
+import { Dicts } from "./dicts";
 export default function ({ expose }) {
   const router = useRouter();
   const { t } = useI18n();
@@ -26,12 +26,7 @@ export default function ({ expose }) {
     lastResRef.value = res;
     return res;
   };
-  let DNSProviderTypeDictRef = dict({
-    data: [
-      { value: "aliyun", label: "Aliyun" },
-      { value: "dnspod", label: "DnsPod" }
-    ]
-  });
+
   return {
     crudOptions: {
       request: {
@@ -48,7 +43,7 @@ export default function ({ expose }) {
       },
       form: {
         wrapper: {
-          width: "1050px"
+          width: "1150px"
         },
         afterSubmit({ mode, form }) {
           if (mode === "add") {
@@ -124,7 +119,9 @@ export default function ({ expose }) {
               }
             },
             valueResolve({ form }) {
-              form.domains = form.domains?.join(",");
+              if (form.domains instanceof String) {
+                form.domains = form.domains?.join(",");
+              }
             },
             rules: [{ required: true, message: "请填写域名" }]
           }
@@ -140,7 +137,7 @@ export default function ({ expose }) {
         certIssuerId: {
           title: "证书签发者",
           type: "dict-select",
-          dict: dict({ data: [{ value: "letencrypt", label: "LetEncrypt" }] }),
+          dict: Dicts.certIssuerDict,
           form: {
             value: "letencrypt",
             rules: [{ required: true, message: "请填写域名" }]
@@ -149,7 +146,7 @@ export default function ({ expose }) {
         challengeType: {
           title: "校验方式",
           type: "dict-select",
-          dict: dict({ data: [{ value: "dns", label: "DNS校验" }] }),
+          dict: Dicts.challengeTypeDict,
           form: {
             value: "dns",
             rules: [{ required: true, message: "请填写域名" }]
@@ -158,10 +155,13 @@ export default function ({ expose }) {
         challengeDnsType: {
           title: "DNS提供商",
           type: "dict-select",
-          dict: DNSProviderTypeDictRef,
+          dict: Dicts.dnsProviderTypeDict,
           form: {
             value: "aliyun",
-            rules: [{ required: true, message: "请选择DNS提供商" }]
+            rules: [{ required: true, message: "请选择DNS提供商" }],
+            valueChange({ form }) {
+              form.challengeAccessId = null;
+            }
           }
         },
         challengeAccessId: {
@@ -169,7 +169,7 @@ export default function ({ expose }) {
           type: "text",
           form: {
             component: {
-              name: shallowRef(AccessSelector),
+              name: "AccessSelector",
               type: compute(({ form }) => {
                 return form.challengeDnsType;
               }),

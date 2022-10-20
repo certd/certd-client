@@ -5,7 +5,7 @@
     </a-badge>
   </a-tooltip>
   <div v-else>
-    <component :is="type" v-for="item of list" color="cyan" class="domain-item">{{ item }}</component>
+    <component :is="type" v-for="item of list" :key="item" color="cyan" class="domain-item">{{ item }}</component>
   </div>
 </template>
 

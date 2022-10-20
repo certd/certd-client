@@ -19,8 +19,7 @@ export default function ({ expose }) {
     return await api.AddObj(form);
   };
   let accessProviderDict = dict({
-    url: "certd/access/providers",
-    value: "name"
+    url: "certd/access/accessTypeDict"
   });
   return {
     output: {

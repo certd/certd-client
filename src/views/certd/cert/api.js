@@ -1,5 +1,7 @@
 import { request } from "/src/api/service";
 const apiPrefix = "/certd/cert";
+const accessPrefix = "/certd/access";
+
 export function GetList(query) {
   return request({
     url: apiPrefix + "/page",
@@ -43,6 +45,14 @@ export function GetObj(id) {
 export function GetDetail(id) {
   return request({
     url: apiPrefix + "/detail",
+    method: "post",
+    params: { id }
+  });
+}
+
+export function GetAccessInfo(id) {
+  return request({
+    url: accessPrefix + "/info",
     method: "post",
     params: { id }
   });

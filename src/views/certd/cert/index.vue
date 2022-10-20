@@ -2,7 +2,6 @@
   <fs-page class="page-cert">
     <template #header>
       <div class="title">证书管理</div>
-      <div class="more"><a-button @click="showDemo">更多</a-button></div>
     </template>
     <fs-crud ref="crudRef" v-bind="crudBinding">
       <div class="cert-list">
@@ -81,9 +80,6 @@ export default defineComponent({
       expose.doRefresh();
     });
 
-    function showDemo() {
-      message("演示按钮");
-    }
     const router = useRouter();
     function goDetail(item) {
       router.push({ path: "/certd/cert/detail", query: { id: item.id } });
@@ -98,7 +94,6 @@ export default defineComponent({
     return {
       crudBinding,
       crudRef,
-      showDemo,
       goDetail,
       openEditDialog,
       deleteCert

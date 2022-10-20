@@ -1,12 +1,12 @@
 <script>
-import { h, resolveComponent } from 'vue'
-import _ from 'lodash-es'
+import { h, resolveComponent } from "vue";
+import _ from "lodash-es";
 export default {
-  name: 'component-render',
+  name: "ComponentRender",
   props: {
     name: {
       type: String,
-      default: 'a-input'
+      default: "a-input"
     },
     children: {
       type: Array
@@ -15,19 +15,19 @@ export default {
       type: Object
     }
   },
-  setup (props, context) {
+  setup(props, context) {
     const attrs = {
       ...context.$attrs
-    }
+    };
     _.forEach(props.on, (value, key) => {
-      attrs[key] = value
-      if (typeof value === 'string') {
+      attrs[key] = value;
+      if (typeof value === "string") {
         // eslint-disable-next-line no-eval
-        attrs[key] = eval(value)
+        attrs[key] = eval(value);
       }
-    })
-    const comp = resolveComponent(props.name)
-    return () => h(comp, context.$attrs, props.children)
+    });
+    const comp = resolveComponent(props.name);
+    return () => h(comp, context.$attrs, props.children);
   }
-}
+};
 </script>

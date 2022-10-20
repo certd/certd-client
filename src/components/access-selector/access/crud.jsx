@@ -1,8 +1,10 @@
 import * as api from "./api";
-import { compute, dict } from "@fast-crud/fast-crud";
-import { ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { dict } from "@fast-crud/fast-crud";
+import { ref } from "vue";
+import _ from "lodash-es";
+
 export default function ({ expose, props, ctx }) {
+  const { crudBinding } = expose;
   const lastResRef = ref();
   const pageRequest = async (query) => {
     return await api.GetList(query);
@@ -25,10 +27,7 @@ export default function ({ expose, props, ctx }) {
     return res;
   };
   let DNSProviderTypeDictRef = dict({
-    data: [
-      { value: "aliyun", label: "Aliyun" },
-      { value: "dnspod", label: "DnsPod" }
-    ]
+    url: "/certd/access/dnsProviderTypeDict"
   });
   const selectedRowKey = ref([props.modelValue]);
   // watch(
@@ -46,7 +45,31 @@ export default function ({ expose, props, ctx }) {
     selectedRowKey.value = changed;
     ctx.emit("update:modelValue", changed[0]);
   };
+
+  const typeRef = ref("aliyun");
+
+  const defaultPluginConfig = {
+    component: {
+      name: "a-input",
+      vModel: "value"
+    }
+  };
+  function buildDefineFields(define, mode) {
+    _.remove(crudBinding.value[mode + "Form"].columns, function (value, key) {
+      return !!value._isUnstable;
+    });
+    _.forEach(define.input, (value, key) => {
+      let field = {
+        key,
+        ...value,
+        _isUnstable: true
+      };
+      crudBinding.value[mode + "Form"].columns[key] = _.merge({ title: key }, defaultPluginConfig, field);
+      console.log("form", crudBinding.value[mode + "Form"]);
+    });
+  }
   return {
+    typeRef,
     crudOptions: {
       request: {
         pageRequest,
@@ -55,6 +78,9 @@ export default function ({ expose, props, ctx }) {
         delRequest
       },
       toolbar: {
+        show: false
+      },
+      search: {
         show: false
       },
       form: {
@@ -70,6 +96,13 @@ export default function ({ expose, props, ctx }) {
           type: "radio",
           selectedRowKeys: selectedRowKey,
           onChange: onSelectChange
+        },
+        customRow: (record) => {
+          return {
+            onClick: () => {
+              onSelectChange([record.id]);
+            } // 点击行
+          };
         }
       },
       columns: {
@@ -96,20 +129,46 @@ export default function ({ expose, props, ctx }) {
         },
         type: {
           title: "类型",
-          type: ["text"],
+          type: "dict-select",
           dict: DNSProviderTypeDictRef,
-          form: {
-            rules: [{ required: true, message: "请选择类型" }]
-          }
-        },
-        settings: {
-          title: "配置",
-          type: "text",
-          column: {
+          search: {
             show: false
           },
           form: {
-            rules: [{ required: true, message: "请填写配置" }]
+            rules: [{ required: true, message: "请选择类型" }],
+            component: {
+              disabled: true
+            },
+            valueChange: {
+              immediate: true,
+              async handle({ value, mode }) {
+                const define = await api.GetProviderDefine(value);
+                console.log("define", define);
+                buildDefineFields(define, mode);
+              }
+            }
+          },
+          addForm: {
+            value: typeRef
+          }
+        },
+        setting: {
+          column: { show: false },
+          form: {
+            show: false,
+            valueBuilder({ value, form }) {
+              if (!value) {
+                return;
+              }
+              const setting = JSON.parse(value);
+              for (let key in setting) {
+                form[key] = setting[key];
+              }
+            },
+            valueResolve({ form }) {
+              const setting = _.omit(form, "id", "name", "type", "setting");
+              form.setting = JSON.stringify(setting);
+            }
           }
         }
       }

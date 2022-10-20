@@ -8,9 +8,7 @@
     </div>
     <p class="d2-page-cover__sub-title">面向配置的crud编程，快速开发crud功能</p>
     <div class="exampleBox">
-      <div class="left">
-        <fs-highlight :code="helper.crud" lang="javascript" />
-      </div>
+      <div class="left"></div>
       <div class="icon">
         <fs-icon :icon="$fsui.icons.arrowRight" />
       </div>
