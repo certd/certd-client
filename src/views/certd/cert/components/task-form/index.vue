@@ -28,7 +28,7 @@
               <a-card-meta>
                 <template #title>
                   <a-avatar :src="item.icon || '/images/plugin.png'" />
-                  <span class="title">{{ item.label }}</span>
+                  <span class="title">{{ item.title }}</span>
                 </template>
                 <template #description>
                   <span :title="item.desc">{{ item.desc }}</span>
@@ -51,21 +51,7 @@
             <a-input v-model:value="currentTask.title" placeholder="请输入任务名称"></a-input>
           </a-form-item>
 
-          <a-form-item
-            v-for="(item, key) in currentPlugin.input"
-            v-bind="item.component || {}"
-            :key="key"
-            :label="item.label"
-            :name="'props.' + key"
-          >
-            <fs-component-render
-              v-model:value="currentTask['props.' + key]"
-              v-bind="item.component || {}"
-            ></fs-component-render>
-            <template v-if="item.desc" #extra>
-              {{ item.desc }}
-            </template>
-          </a-form-item>
+          <fs-form-item v-for="(item, key) in currentPlugin.input" :key="key" :item="item" :get-context-fn="blankFn" />
         </a-form>
 
         <template #footer>
@@ -231,6 +217,9 @@ function useTaskForm(context) {
     taskDrawerClose();
   };
 
+  const blankFn = () => {
+    return {};
+  };
   return {
     taskTypeSelected,
     taskTypeSave,
@@ -246,7 +235,8 @@ function useTaskForm(context) {
     currentPlugin,
     taskSave,
     taskDelete,
-    rules
+    rules,
+    blankFn
   };
 }
 
