@@ -18,10 +18,11 @@ export async function GetList(query) {
   for (let plugin of plugins) {
     for (const key in plugin.input) {
       const field = _.merge({}, defaultInputDefine, plugin.input[key]);
-      if (field.component.name === "a-input") {
+      if (field.component.name === "a-input" || field.component.name === "a-select") {
         field.component.vModel = "value";
       }
-      field.key = key;
+      //嵌套对象
+      field.key = ["props", key];
       if (field.required) {
         delete field.required;
         if (field.rules == null) {

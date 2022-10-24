@@ -4,8 +4,7 @@
       <div class="cert-detail-left">
         <a-page-header title="证书申请" sub-title="可以将多个域名打到一个证书上">
           <template #extra>
-            <a-button key="apply" type="primary">立即申请</a-button>
-            <a-button key="edit" type="primary" @click="openCertEditDialog">编辑证书</a-button>
+            <a-button key="edit" type="primary" @click="openCertEditDialog"><EditOutlined /> 编辑证书</a-button>
           </template>
           <a-descriptions bordered>
             <a-descriptions-item label="域名"
@@ -32,7 +31,43 @@
         <cert-deploy ref="certDeployRef" v-model="detailRef.deploy"></cert-deploy>
       </div>
 
-      <div class="cert-log"></div>
+      <div class="cert-log">
+        <a-page-header title="运行" sub-title="申请证书，并自动部署">
+          <a-card>
+            <label><a-checkbox>强制重新申请证书</a-checkbox></label>
+            <label><a-checkbox>强制重新部署</a-checkbox></label>
+            <a-button key="apply" type="primary">运行</a-button>
+          </a-card>
+          <a-card title="运行历史" class="mt-5">
+            <a-timeline>
+              <a-timeline-item color="blue">
+                <template #dot>
+                  <fs-icon icon="ion:refresh" :spin="true" />
+                </template>
+                <p>2015-09-01 11:11:11 <a-tag color="blue">进行中</a-tag></p>
+              </a-timeline-item>
+              <a-timeline-item color="green">
+                <template #dot>
+                  <CheckCircleOutlined />
+                </template>
+                <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
+              </a-timeline-item>
+              <a-timeline-item color="green">
+                <template #dot>
+                  <CheckCircleOutlined />
+                </template>
+                <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
+              </a-timeline-item>
+              <a-timeline-item color="red">
+                <template #dot>
+                  <info-circle-outlined />
+                </template>
+                <p>2015-09-01 11:11:11 <a-tag color="warning">日志</a-tag> <a-tag color="red">任务(xxxx)失败</a-tag></p>
+              </a-timeline-item>
+            </a-timeline>
+          </a-card>
+        </a-page-header>
+      </div>
     </div>
   </fs-page>
 </template>
@@ -116,10 +151,10 @@ export default defineComponent({
   .cert-detail {
     display: flex;
     .cert-detail-left {
-      width: 70%;
+      width: 60%;
     }
     .cert-log {
-      width: 30%;
+      width: 40%;
     }
   }
 }

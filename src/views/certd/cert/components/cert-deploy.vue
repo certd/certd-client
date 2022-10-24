@@ -7,69 +7,91 @@
         <a-button key="cancel" type="default" @click="cancel">取消</a-button>
       </template>
       <template v-else>
-        <a-button key="play" type="primary" @click="play">重新部署</a-button>
-        <a-button key="edit" type="primary" @click="edit">编辑</a-button>
+        <a-button key="edit" type="primary" @click="edit">
+          <EditOutlined />
+          编辑流程
+        </a-button>
       </template>
     </template>
     <div class="flow-deploy">
-      <a-card v-for="(deploy, index) of deployRef" :key="index" class="deploy-item" size="small">
-        <template #title>
-          <div class="deploy-name">
-            <template v-if="deploy._isEdit">
-              <a-input
-                v-model:value="deploy.title"
-                :validate-status="deploy.title ? '' : 'error'"
-                placeholder="请输入流程名称"
-                @keyup.enter="deployCloseEditMode(deploy)"
-                @blur="deployCloseEditMode(deploy)"
-              >
-                <template #suffix>
-                  <CheckOutlined style="color: rgba(0, 0, 0, 0.45)" @click="deployCloseEditMode(deploy)" />
-                </template>
-              </a-input>
-            </template>
-            <template v-else>
-              <span> <NodeIndexOutlined /> {{ deploy.title }}</span>
-              <EditOutlined v-if="isEdit" class="ml-10 edit-icon" @click="deployOpenEditMode(deploy)" />
-            </template>
-          </div>
-        </template>
-        <template #extra>
-          <a-button v-if="isEdit" type="danger" @click="deployDelete(deploy, index)">
-            <template #icon><DeleteOutlined /></template>
-          </a-button>
-        </template>
-        <div class="task-list">
-          <div class="task-item-wrapper">
-            <a-button class="task-item" shape="round"> 开始 </a-button>
-          </div>
-          <div v-for="(task, iindex) of deploy.tasks" :key="iindex" class="task-item-wrapper">
-            <ArrowRightOutlined class="task-next-icon" />
-            <a-button class="task-item" shape="round" @click="taskEdit(deploy, task, iindex)">
-              <ThunderboltOutlined />
-              {{ task.title }}
+      <template v-if="deployRef.length === 0">
+        <a-empty description="暂无部署任务">
+          <a-button
+            type="primary"
+            @click="
+              edit();
+              deployAdd();
+            "
+            >立即添加</a-button
+          >
+        </a-empty>
+      </template>
+      <template v-else>
+        <a-card v-for="(deploy, index) of deployRef" :key="index" class="deploy-item" size="small">
+          <template #title>
+            <div class="deploy-name">
+              <template v-if="deploy._isEdit">
+                <a-input
+                  v-model:value="deploy.title"
+                  :validate-status="deploy.title ? '' : 'error'"
+                  placeholder="请输入流程名称"
+                  @keyup.enter="deployCloseEditMode(deploy)"
+                  @blur="deployCloseEditMode(deploy)"
+                >
+                  <template #suffix>
+                    <CheckOutlined style="color: rgba(0, 0, 0, 0.45)" @click="deployCloseEditMode(deploy)" />
+                  </template>
+                </a-input>
+              </template>
+              <template v-else>
+                <span> <NodeIndexOutlined /> {{ deploy.title }}</span>
+                <EditOutlined v-if="isEdit" class="ml-10 edit-icon" @click="deployOpenEditMode(deploy)" />
+              </template>
+            </div>
+          </template>
+          <template #extra>
+            <a-button v-if="isEdit" type="danger" @click="deployDelete(deploy, index)">
+              <template #icon><DeleteOutlined /></template>
             </a-button>
+          </template>
+          <div class="task-list">
+            <div class="task-item-wrapper">
+              <a-button class="task-item" shape="round"> 开始 </a-button>
+            </div>
+            <div v-for="(task, iindex) of deploy.tasks" :key="iindex" class="task-item-wrapper">
+              <ArrowRightOutlined class="task-next-icon" />
+
+              <a-button shape="round" type="success" @click="taskEdit(deploy, task, iindex)">
+                <ThunderboltOutlined />
+                {{ task.title }}
+                <a-tooltip title="2022-11-11 11:11:11 执行成功">
+                  <CheckCircleOutlined class="green" />
+                </a-tooltip>
+              </a-button>
+            </div>
+            <div v-if="isEdit" class="task-item-wrapper">
+              <ArrowRightOutlined class="task-next-icon" />
+              <a-button type="primary" class="task-item" shape="round" @click="taskAdd(deploy)">
+                <PlusOutlined />
+                添加新任务
+              </a-button>
+            </div>
           </div>
-          <div v-if="isEdit" class="task-item-wrapper">
-            <ArrowRightOutlined class="task-next-icon" />
-            <a-button type="primary" class="task-item" shape="round" @click="taskAdd(deploy)">
-              <PlusOutlined />
-              添加新任务
-            </a-button>
-          </div>
-        </div>
-      </a-card>
+        </a-card>
+      </template>
     </div>
-    <task-form ref="taskFormRef"></task-form>
+    <task-form ref="taskFormRef" :is-edit="isEdit"></task-form>
   </a-page-header>
 </template>
 
 <script>
 import { computed, defineComponent, reactive, ref, watch } from "vue";
 import TaskForm from "./task-form/index.vue";
+import { nanoid } from "nanoid";
 function useDeploy(deployRef) {
   const deployAdd = () => {
     deployRef.value.push({
+      id: nanoid(),
       title: `D${deployRef.value.length + 1}-新部署流程`,
       _isEdit: false,
       tasks: []
@@ -117,10 +139,12 @@ function useTask(isEdit) {
         } else if (type === "save") {
           deploy.tasks[index] = value;
         }
-        console.log("deploy", deploy);
       });
+    } else {
+      taskFormRef.value.taskView(task, (type, value) => {});
     }
   };
+
   return { taskAdd, taskEdit, taskFormRef };
 }
 export default defineComponent({

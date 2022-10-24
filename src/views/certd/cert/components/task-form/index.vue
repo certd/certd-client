@@ -37,7 +37,7 @@
             </a-card>
           </a-col>
         </a-row>
-        <a-button type="primary" @click="taskTypeSave"> 确定 </a-button>
+        <a-button v-if="isEdit" type="primary" @click="taskTypeSave"> 确定 </a-button>
       </d-container>
       <d-container v-else class="d-container">
         <a-form
@@ -61,12 +61,12 @@
             :get-context-fn="blankFn"
           />
           <template v-for="(item, key) in currentPlugin.input" :key="key">
-            <fs-form-item v-model="currentTask[key]" :item="item" :get-context-fn="blankFn" />
+            <fs-form-item v-model="currentTask.props[key]" :item="item" :get-context-fn="blankFn" />
           </template>
         </a-form>
 
         <template #footer>
-          <a-form-item :wrapper-col="{ span: 14, offset: 4 }">
+          <a-form-item v-if="isEdit" :wrapper-col="{ span: 14, offset: 4 }">
             <a-button type="primary" @click="taskSave"> 确定 </a-button>
           </a-form-item>
         </template>
@@ -80,13 +80,8 @@ import { message } from "ant-design-vue";
 import * as pluginsApi from "./api";
 import { ref } from "vue";
 import _ from "lodash-es";
+import { nanoid } from "nanoid";
 
-const defaultInputDefine = {
-  component: {
-    name: "a-input",
-    vModel: "value"
-  }
-};
 /**
  *  task drawer
  * @returns
@@ -115,13 +110,6 @@ function useTaskForm(context) {
       }
     ]
   });
-  const taskAdd = (emit) => {
-    mode.value = "add";
-    currentTask.value = { title: "新任务", type: undefined, _isAdd: true, props: {} };
-    callback.value = emit;
-    taskDrawerShow();
-    console.log("currentTaskTypeChanged:", currentTask.value);
-  };
 
   const taskTypeSelected = (item) => {
     currentTask.value.type = item.name;
@@ -160,14 +148,30 @@ function useTaskForm(context) {
     console.log("taskDrawerOnAfterVisibleChange", val);
   };
 
-  const taskEdit = (task, emit) => {
-    mode.value = "edit";
+  const taskOpen = (task, emit) => {
     callback.value = emit;
     currentTask.value = _.cloneDeep(task);
-    console.log("currentTaskEdit", currentTask.value);
-    changeCurrentPlugin(currentTask.value);
-
+    console.log("currentTaskOpen", currentTask.value);
+    if (task.type) {
+      changeCurrentPlugin(currentTask.value);
+    }
     taskDrawerShow();
+  };
+
+  const taskAdd = (emit) => {
+    mode.value = "add";
+    const task = { id: nanoid(), title: "新任务", type: undefined, _isAdd: true, props: {} };
+    taskOpen(task, emit);
+  };
+
+  const taskEdit = (task, emit) => {
+    mode.value = "edit";
+    taskOpen(task, emit);
+  };
+
+  const taskView = (task, emit) => {
+    mode.value = "view";
+    taskOpen(task, emit);
   };
 
   const changeCurrentPlugin = (task) => {
@@ -213,6 +217,7 @@ function useTaskForm(context) {
     mode,
     taskAdd,
     taskEdit,
+    taskView,
     taskDrawerShow,
     taskDrawerVisible,
     taskDrawerOnAfterVisibleChange,
@@ -234,7 +239,12 @@ function useProviderManager() {
 }
 export default {
   name: "TaskForm",
-  props: {},
+  props: {
+    isEdit: {
+      type: Boolean,
+      default: true
+    }
+  },
   emits: ["update"],
   setup(props, context) {
     return {
