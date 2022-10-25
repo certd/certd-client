@@ -1,5 +1,5 @@
 import { request } from "/src/api/service";
-const apiPrefix = "/certd/cert";
+const apiPrefix = "/certd/pipeline";
 const accessPrefix = "/certd/access";
 
 export function GetList(query) {

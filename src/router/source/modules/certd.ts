@@ -29,6 +29,24 @@ export const certdResources = [
         ]
       },
       {
+        title: "流水线",
+        name: "pipeline",
+        path: "/certd/pipeline",
+        component: "/certd/pipeline/index.vue",
+        meta: {
+          icon: "ion:key-outline"
+        }
+      },
+      {
+        title: "编辑流水线",
+        name: "pipelineEdit",
+        path: "/certd/pipeline/edit",
+        component: "/certd/pipeline/edit.vue",
+        meta: {
+          icon: "ion:key-outline"
+        }
+      },
+      {
         title: "授权",
         name: "access",
         path: "/certd/access",
