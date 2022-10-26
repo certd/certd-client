@@ -40,8 +40,8 @@ export const certdResources = [
       {
         title: "编辑流水线",
         name: "pipelineEdit",
-        path: "/certd/pipeline/edit",
-        component: "/certd/pipeline/edit.vue",
+        path: "/certd/pipeline/detail",
+        component: "/certd/pipeline/detail.vue",
         meta: {
           icon: "ion:key-outline"
         }

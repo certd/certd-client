@@ -1,6 +1,6 @@
 import { request } from "/src/api/service";
 import _ from "lodash-es";
-const apiPrefix = "/certd/plugin";
+const apiPrefix = "/plugin";
 
 const defaultInputDefine = {
   component: {

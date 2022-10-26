@@ -1,5 +1,5 @@
 <template>
-  <div class="hover-edit" :class="{ disabled }">
+  <div class="fs-editable" :class="{ disabled, 'hover-show': hoverShow }">
     <div v-if="isEdit" class="input">
       <a-input
         ref="inputRef"
@@ -25,7 +25,7 @@
 import { watch, ref, nextTick } from "vue";
 
 export default {
-  name: "HoverEdit",
+  name: "FsEditable",
   props: {
     modelValue: {
       type: String,
@@ -35,6 +35,10 @@ export default {
       type: Object
     },
     disabled: {
+      type: Boolean,
+      default: false
+    },
+    hoverShow: {
       type: Boolean,
       default: false
     }
@@ -76,27 +80,30 @@ export default {
 </script>
 
 <style lang="less">
-.hover-edit {
+.fs-editable {
   line-height: 34px;
+
   &.disabled {
+    .edit-icon {
+      visibility: hidden !important;
+    }
+  }
+  &.hover-show {
+    .edit-icon {
+      visibility: hidden;
+    }
     &:hover {
       .edit-icon {
-        visibility: hidden;
+        visibility: visible;
       }
     }
   }
   .edit-icon {
-    visibility: hidden;
     line-height: 34px;
   }
   .view {
     cursor: pointer;
     display: flex;
-  }
-  &:hover {
-    .edit-icon {
-      visibility: visible;
-    }
   }
 }
 </style>
