@@ -22,7 +22,7 @@ export async function GetList(query) {
         field.component.vModel = "value";
       }
       //嵌套对象
-      field.key = ["props", key];
+      field.key = ["input", key];
       if (field.required) {
         delete field.required;
         if (field.rules == null) {

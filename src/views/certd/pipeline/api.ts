@@ -1,5 +1,5 @@
 import { request } from "/src/api/service";
-const apiPrefix = "/certd/pipeline";
+const apiPrefix = "/pipeline";
 
 export function GetList(query) {
   return request({
@@ -59,7 +59,7 @@ export function Save(pipeline) {
 
 export function Run(id) {
   return request({
-    url: apiPrefix + "/save",
+    url: apiPrefix + "/run",
     method: "post",
     params: { id }
   });

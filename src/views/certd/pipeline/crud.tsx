@@ -36,7 +36,12 @@ export default function ({ expose }) {
         buttons: {
           view: {
             click({ row }) {
-              router.push({ path: "/certd/pipeline/detail", query: { id: row.id } });
+              router.push({ path: "/certd/pipeline/detail", query: { id: row.id, editMode: "false" } });
+            }
+          },
+          edit: {
+            click({ row }) {
+              router.push({ path: "/certd/pipeline/detail", query: { id: row.id, editMode: "true" } });
             }
           }
         }

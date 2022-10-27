@@ -3,19 +3,7 @@
     <template #header>
       <div class="title">授权管理</div>
     </template>
-    <fs-crud ref="crudRef" v-bind="crudBinding">
-      <!--      <template #form_settings="{ form }">-->
-      <!--        <template v-if="accessProviderDict?.dataMap && accessProviderDict.dataMap[form?.type]">-->
-      <!--          <a-row>-->
-      <!--            <a-col v-for="(item, key) of accessProviderDict.dataMap[form?.type].inputs" :key="item.name" :span="12">-->
-      <!--              <a-form-item v-bind="item" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">-->
-      <!--                <fs-component-render v-model="form.settings[key]" v-bind="item.component"></fs-component-render>-->
-      <!--              </a-form-item>-->
-      <!--            </a-col>-->
-      <!--          </a-row>-->
-      <!--        </template>-->
-      <!--      </template>-->
-    </fs-crud>
+    <fs-crud ref="crudRef" v-bind="crudBinding"> </fs-crud>
   </fs-page>
 </template>
 

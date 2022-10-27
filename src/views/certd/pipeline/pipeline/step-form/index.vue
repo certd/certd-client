@@ -37,7 +37,7 @@
             </a-card>
           </a-col>
         </a-row>
-        <a-button v-if="isEdit" type="primary" @click="stepTypeSave"> 确定 </a-button>
+        <a-button v-if="editMode" type="primary" @click="stepTypeSave"> 确定 </a-button>
       </d-container>
       <d-container v-else class="d-container">
         <a-form
@@ -61,12 +61,12 @@
             :get-context-fn="blankFn"
           />
           <template v-for="(item, key) in currentPlugin.input" :key="key">
-            <fs-form-item v-model="currentStep.props[key]" :item="item" :get-context-fn="blankFn" />
+            <fs-form-item v-model="currentStep.input[key]" :item="item" :get-context-fn="blankFn" />
           </template>
         </a-form>
 
         <template #footer>
-          <a-form-item v-if="isEdit" :wrapper-col="{ span: 14, offset: 4 }">
+          <a-form-item v-if="editMode" :wrapper-col="{ span: 14, offset: 4 }">
             <a-button type="primary" @click="stepSave"> 确定 </a-button>
           </a-form-item>
         </template>
@@ -83,7 +83,7 @@ import { nanoid } from "nanoid";
 export default {
   name: "StepForm",
   props: {
-    isEdit: {
+    editMode: {
       type: Boolean,
       default: true
     }
@@ -99,7 +99,7 @@ export default {
 
       const mode = ref("add");
       const callback = ref();
-      const currentStep = ref({ title: undefined, props: {} });
+      const currentStep = ref({ title: undefined, input: {} });
       const currentPlugin = ref({});
       const stepFormRef = ref(null);
       const stepDrawerVisible = ref(false);
@@ -128,13 +128,13 @@ export default {
         // 给step的input设置默认值
         changeCurrentPlugin(currentStep.value);
 
-        if (currentStep.value.props) {
-          currentStep.value.props = {};
+        if (currentStep.value.input) {
+          currentStep.value.input = {};
         }
         for (const key in currentPlugin.value.input) {
           const input = currentPlugin.value.input[key];
           if (input.default != null) {
-            currentStep.value.props[key] = input.default;
+            currentStep.value.input[key] = input.default;
           }
         }
       };
@@ -162,7 +162,7 @@ export default {
 
       const stepAdd = (emit) => {
         mode.value = "add";
-        const step = { id: nanoid(), title: "新任务", type: undefined, _isAdd: true, props: {} };
+        const step = { id: nanoid(), title: "新任务", type: undefined, _isAdd: true, input: {} };
         stepOpen(step, emit);
       };
 

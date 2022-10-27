@@ -128,30 +128,31 @@
       </div>
     </div>
 
-    <task-form ref="taskFormRef" :is-edit="editMode"></task-form>
+    <task-form ref="taskFormRef" :edit-mode="editMode"></task-form>
+    <trigger-form ref="triggerFormRef" :edit-mode="editMode"></trigger-form>
   </fs-page>
 </template>
 
 <script lang="ts">
 import { defineComponent, ref, provide, Ref, watch } from "vue";
 import TaskForm from "./task-form/index.vue";
+import TriggerForm from "./trigger-form/index.vue";
 import _ from "lodash-es";
-import * as api from "../api";
-import { notification } from "ant-design-vue";
+import { Modal, notification } from "ant-design-vue";
 import { pluginManager } from "/@/views/certd/pipeline/pipeline/plugin";
-export type PipelineProps = {
-  onSave(pipeline: any): Promise<void>;
-  set(pipeline: any);
-};
 export default defineComponent({
   name: "PipelineEdit",
-  components: { TaskForm },
+  components: { TaskForm, TriggerForm },
   props: {
     modelValue: {
       type: Object,
       default() {
         return { stages: [] };
       }
+    },
+    editMode: {
+      type: Boolean,
+      default: false
     },
     doSave: {
       type: Function,
@@ -168,7 +169,7 @@ export default defineComponent({
       }
     }
   },
-  emits: ["update:modelValue"],
+  emits: ["update:modelValue", "update:editMode"],
   setup(props, ctx) {
     const pipeline: Ref<any> = ref({
       title: "新流水线",
@@ -177,14 +178,16 @@ export default defineComponent({
           id: 0,
           title: "定时每天5点",
           type: "time",
-          cron: "* * 5 * *"
+          props: {
+            cron: "* * 5 * *"
+          }
         }
       ],
       stages: [
         {
           id: 1,
           title: "证书申请阶段",
-          tasks: [{ id: 2, title: "证书申请任务", steps: [{ id: 3, title: "申请证书", type: "CertApply", props: {} }] }]
+          tasks: [{ id: 2, title: "证书申请任务", steps: [{ id: 3, title: "申请证书", type: "CertApply", input: {} }] }]
         },
         {
           id: 2,
@@ -193,14 +196,14 @@ export default defineComponent({
             {
               id: 2,
               title: "部署到阿里云",
-              steps: [{ id: 3, title: "部署到cdn", type: "DeployCertToAliyunCDN", props: {} }]
+              steps: [{ id: 3, title: "部署到cdn", type: "DeployCertToAliyunCDN", input: {} }]
             },
             {
               id: 2,
               title: "部署到腾讯云",
               steps: [
-                { id: 4, title: "上传到腾讯云", type: "UploadCertToTencent", props: {} },
-                { id: 5, title: "部署到cdn", type: "DeployCertToTencentCDN", props: {} }
+                { id: 4, title: "上传到腾讯云", type: "UploadCertToTencent", input: {} },
+                { id: 5, title: "部署到cdn", type: "DeployCertToTencentCDN", input: {} }
               ]
             }
           ]
@@ -213,6 +216,9 @@ export default defineComponent({
         return props.modelValue;
       },
       (value) => {
+        if (!value) {
+          value = { title: "新管道流程", stages: [], triggers: [] };
+        }
         pipeline.value = value;
       }
     );
@@ -232,6 +238,15 @@ export default defineComponent({
     provide("plugins", plugins);
 
     const editMode = ref(false);
+    watch(
+      () => {
+        return props.plugins;
+      },
+      (value) => {
+        plugins.value = value;
+        pluginManager.init(value);
+      }
+    );
 
     function useTask() {
       const taskFormRef: Ref<any> = ref(null);
@@ -301,11 +316,34 @@ export default defineComponent({
     }
 
     function useTrigger() {
-      const triggerAdd = () => {};
-      const triggerEdit = (trigger, index) => {};
+      const triggerFormRef: Ref<any> = ref(null);
+      const triggerAdd = () => {
+        triggerFormRef.value.triggerAdd((type, value) => {
+          if (type === "save") {
+            pipeline.value.triggers.push(value);
+          }
+        });
+      };
+      const triggerEdit = (trigger, index) => {
+        if (triggerFormRef.value == null) {
+          return;
+        }
+        if (editMode.value) {
+          triggerFormRef.value.triggerEdit(trigger, (type, value) => {
+            if (type === "delete") {
+              pipeline.value.triggers.splice(index, 1);
+            } else if (type === "save") {
+              pipeline.value.triggers[index] = value;
+            }
+          });
+        } else {
+          triggerFormRef.value.triggerView(trigger, (type, value) => {});
+        }
+      };
       return {
         triggerAdd,
-        triggerEdit
+        triggerEdit,
+        triggerFormRef
       };
     }
 
@@ -317,11 +355,22 @@ export default defineComponent({
           notification.warn({ message: "请先保存，再运行管道" });
           return;
         }
-        if (props.doRun) {
-          await props.doRun(pipeline.value);
-          notification.success({ message: "管道已经开始运行" });
+        if (!props.doRun) {
+          notification.warn({ message: "暂不支持运行" });
         }
+        Modal.confirm({
+          title: "确认",
+          content: `确定要手动触发运行吗？`,
+          async onOk() {
+            //@ts-ignore
+            await props.doRun(pipeline.value);
+            notification.success({ message: "管道已经开始运行" });
+          }
+        });
       };
+      function toggleEditMode(editMode: boolean) {
+        ctx.emit("update:editMode", editMode);
+      }
       const save = async () => {
         saveLoading.value = true;
         try {
@@ -329,18 +378,18 @@ export default defineComponent({
             await props.doSave(pipeline.value);
           }
           ctx.emit("update:modelValue", pipeline.value);
-          editMode.value = false;
+          toggleEditMode(false);
         } finally {
           saveLoading.value = false;
         }
       };
       const edit = () => {
         backup.value = _.cloneDeep(pipeline.value);
-        editMode.value = true;
+        toggleEditMode(true);
       };
       const cancel = () => {
         pipeline.value = backup.value;
-        editMode.value = false;
+        toggleEditMode(false);
       };
       return {
         run,
@@ -356,7 +405,6 @@ export default defineComponent({
 
     return {
       pipeline,
-      editMode,
       ...useTaskRet,
       ...useStageRet,
       ...useTrigger(),

@@ -61,7 +61,7 @@
             :get-context-fn="blankFn"
           />
           <template v-for="(item, key) in currentPlugin.input" :key="key">
-            <fs-form-item v-model="currentTask.props[key]" :item="item" :get-context-fn="blankFn" />
+            <fs-form-item v-model="currentTask.input[key]" :item="item" :get-context-fn="blankFn" />
           </template>
         </a-form>
 
@@ -126,13 +126,13 @@ function useTaskForm(context) {
     // 给task的input设置默认值
     changeCurrentPlugin(currentTask.value);
 
-    if (currentTask.value.props) {
-      currentTask.value.props = {};
+    if (currentTask.value.input) {
+      currentTask.value.input = {};
     }
     for (const key in currentPlugin.value.input) {
       const input = currentPlugin.value.input[key];
       if (input.default != null) {
-        currentTask.value.props[key] = input.default;
+        currentTask.value.input[key] = input.default;
       }
     }
   };
