@@ -14,117 +14,171 @@
         </template>
       </div>
     </template>
-    <div class="pipeline-container">
-      <div class="pipeline">
-        <div class="stages">
-          <div class="stage first-stage">
-            <div class="title">
-              <pi-editable model-value="触发源" :disabled="true" />
-            </div>
-            <div class="tasks">
-              <div class="task-container first-task">
-                <div class="line">
-                  <div class="flow-line"></div>
+
+    <div class="layout">
+      <div class="layout-left">
+        <div class="pipeline-container">
+          <div class="pipeline">
+            <div class="stages">
+              <div class="stage first-stage">
+                <div class="title">
+                  <pi-editable model-value="触发源" :disabled="true" />
                 </div>
-                <div class="task">
-                  <a-button shape="round" type="primary" @click="run">
-                    <fs-icon icon="ion:play"></fs-icon>
-                    手动触发
-                  </a-button>
-                </div>
-              </div>
-              <div v-for="(trigger, index) of pipeline.triggers" :key="trigger.id" class="task-container">
-                <div class="line">
-                  <div class="flow-line"></div>
-                </div>
-                <div class="task">
-                  <a-button shape="round" @click="triggerEdit(trigger, index)">
-                    <fs-icon icon="ion:time"></fs-icon>
-                    {{ trigger.title }}
-                  </a-button>
+                <div class="tasks">
+                  <div class="task-container first-task">
+                    <div class="line">
+                      <div class="flow-line"></div>
+                    </div>
+                    <div class="task">
+                      <a-button shape="round" type="primary" @click="run">
+                        <fs-icon icon="ion:play"></fs-icon>
+                        手动触发
+                      </a-button>
+                    </div>
+                  </div>
+                  <div v-for="(trigger, index) of pipeline.triggers" :key="trigger.id" class="task-container">
+                    <div class="line">
+                      <div class="flow-line"></div>
+                    </div>
+                    <div class="task">
+                      <a-button shape="round" @click="triggerEdit(trigger, index)">
+                        <fs-icon icon="ion:time"></fs-icon>
+                        {{ trigger.title }}
+                      </a-button>
+                    </div>
+                  </div>
+
+                  <div v-if="editMode" class="task-container is-add">
+                    <div class="line">
+                      <div class="flow-line"></div>
+                    </div>
+                    <div class="task">
+                      <a-button shape="round" type="dashed" @click="triggerAdd">
+                        <fs-icon icon="ion:add-circle-outline"></fs-icon>
+                        触发源（定时）
+                      </a-button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div v-if="editMode" class="task-container is-add">
-                <div class="line">
-                  <div class="flow-line"></div>
-                </div>
-                <div class="task">
-                  <a-button shape="round" type="dashed" @click="triggerAdd">
-                    <fs-icon icon="ion:add-circle-outline"></fs-icon>
-                    触发源（定时）
-                  </a-button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            v-for="(stage, index) of pipeline.stages"
-            :key="stage.id"
-            class="stage"
-            :class="{ 'last-stage': !editMode && index === pipeline.stages.length - 1 }"
-          >
-            <div class="title">
-              <pi-editable v-model="stage.title" :disabled="!editMode"></pi-editable>
-            </div>
-            <div class="tasks">
               <div
-                v-for="(task, taskIndex) of stage.tasks"
-                :key="task.id"
-                class="task-container"
-                :class="{
-                  'first-task': taskIndex === 0
-                }"
+                v-for="(stage, index) of pipeline.stages"
+                :key="stage.id"
+                class="stage"
+                :class="{ 'last-stage': !editMode && index === pipeline.stages.length - 1 }"
               >
-                <div class="line">
-                  <div class="flow-line"></div>
-                  <fs-icon
-                    v-if="editMode"
-                    class="add-stage-btn"
-                    title="添加新阶段"
-                    icon="ion:add-circle"
-                    @click="stageAdd(index)"
-                  ></fs-icon>
+                <div class="title">
+                  <pi-editable v-model="stage.title" :disabled="!editMode"></pi-editable>
                 </div>
-                <div class="task">
-                  <a-button shape="round" @click="taskEdit(stage, index, task, taskIndex)">{{ task.title }}</a-button>
+                <div class="tasks">
+                  <div
+                    v-for="(task, taskIndex) of stage.tasks"
+                    :key="task.id"
+                    class="task-container"
+                    :class="{
+                      'first-task': taskIndex === 0
+                    }"
+                  >
+                    <div class="line">
+                      <div class="flow-line"></div>
+                      <fs-icon
+                        v-if="editMode"
+                        class="add-stage-btn"
+                        title="添加新阶段"
+                        icon="ion:add-circle"
+                        @click="stageAdd(index)"
+                      ></fs-icon>
+                    </div>
+                    <div class="task">
+                      <a-button shape="round" @click="taskEdit(stage, index, task, taskIndex)">{{
+                        task.title
+                      }}</a-button>
+                    </div>
+                  </div>
+                  <div v-if="editMode" class="task-container is-add">
+                    <div class="line">
+                      <div class="flow-line"></div>
+                    </div>
+                    <div class="task">
+                      <a-button type="dashed" shape="round" @click="taskAdd(stage, index)">
+                        <fs-icon class="font-20" icon="ion:add-circle-outline"></fs-icon>
+                        并行任务
+                      </a-button>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div v-if="editMode" class="task-container is-add">
-                <div class="line">
-                  <div class="flow-line"></div>
-                </div>
-                <div class="task">
-                  <a-button type="dashed" shape="round" @click="taskAdd(stage, index)">
-                    <fs-icon class="font-20" icon="ion:add-circle-outline"></fs-icon>
-                    并行任务
-                  </a-button>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <div v-if="editMode" class="stage last-stage">
-            <div class="title">
-              <pi-editable model-value="新阶段" :disabled="true" />
-            </div>
-            <div class="tasks">
-              <div class="task-container first-task">
-                <div class="line">
-                  <div class="flow-line"></div>
-                  <fs-icon class="add-stage-btn" title="添加新阶段" icon="ion:add-circle" @click="stageAdd()"></fs-icon>
+              <div v-if="editMode" class="stage last-stage">
+                <div class="title">
+                  <pi-editable model-value="新阶段" :disabled="true" />
                 </div>
-                <div class="task">
-                  <a-button shape="round" type="dashed" @click="stageAdd()">
-                    <fs-icon icon="ion:add-circle-outline"></fs-icon>
-                    新任务
-                  </a-button>
+                <div class="tasks">
+                  <div class="task-container first-task">
+                    <div class="line">
+                      <div class="flow-line"></div>
+                      <fs-icon
+                        class="add-stage-btn"
+                        title="添加新阶段"
+                        icon="ion:add-circle"
+                        @click="stageAdd()"
+                      ></fs-icon>
+                    </div>
+                    <div class="task">
+                      <a-button shape="round" type="dashed" @click="stageAdd()">
+                        <fs-icon icon="ion:add-circle-outline"></fs-icon>
+                        新任务
+                      </a-button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="layout-right">
+        <a-page-header title="运行历史" sub-title="申请证书，并自动部署">
+          <a-timeline class="mt-10">
+            <a-timeline-item v-for="item of histories" :key="item.id" color="blue">
+              <template #dot>
+                <fs-icon v-if="item.results[pipeline.id].status === 'start'" icon="ion:refresh" :spin="true" />
+                <fs-icon
+                  v-if="item.results[pipeline.id].status === 'success'"
+                  icon="ant-design:check-circle-outlined"
+                />
+                <fs-icon v-if="item.results[pipeline.id].status === 'error'" icon="ant-design:info-circle-outlined" />
+              </template>
+              <p>
+                <fs-date-format class="mr-10" :model-value="item.results[pipeline.id].startTime"></fs-date-format>
+
+                <a-tag v-if="item.results[pipeline.id].status === 'start'" color="blue">进行中</a-tag>
+                <a-tag v-if="item.results[pipeline.id].status === 'success'" color="success">成功</a-tag>
+                <a-tag v-if="item.results[pipeline.id].status === 'error'" color="red">错误</a-tag>
+              </p>
+            </a-timeline-item>
+            <a-timeline-item color="green">
+              <template #dot>
+                <CheckCircleOutlined />
+              </template>
+              <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
+            </a-timeline-item>
+            <a-timeline-item color="green">
+              <template #dot>
+                <CheckCircleOutlined />
+              </template>
+              <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
+            </a-timeline-item>
+            <a-timeline-item color="red">
+              <template #dot>
+                <info-circle-outlined />
+              </template>
+              <p>2015-09-01 11:11:11 <a-tag color="warning">日志</a-tag> <a-tag color="red">任务(xxxx)失败</a-tag></p>
+            </a-timeline-item>
+          </a-timeline>
+        </a-page-header>
       </div>
     </div>
 
@@ -140,6 +194,7 @@ import PiTriggerForm from "./trigger-form/index.vue";
 import _ from "lodash-es";
 import { message, Modal, notification } from "ant-design-vue";
 import { pluginManager } from "/@/views/certd/pipeline/pipeline/plugin";
+import { nanoid } from "nanoid";
 export default defineComponent({
   name: "PipelineEdit",
   // eslint-disable-next-line vue/no-unused-components
@@ -164,6 +219,12 @@ export default defineComponent({
       default: undefined
     },
     plugins: {
+      type: Array,
+      default() {
+        return [];
+      }
+    },
+    histories: {
       type: Array,
       default() {
         return [];
@@ -218,6 +279,18 @@ export default defineComponent({
       },
       (value) => {
         pipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, value);
+      }
+    );
+
+    const runtime: Ref<any> = ref({});
+    watch(
+      () => {
+        return props.history;
+      },
+      (value) => {
+        if (props.history?.length > 0) {
+          runtime.value = props.history[0];
+        }
       }
     );
 
@@ -296,6 +369,7 @@ export default defineComponent({
     function useStage(useTaskRet) {
       const stageAdd = (stageIndex = pipeline.value.stages.length) => {
         const stage = {
+          id: nanoid(),
           title: "新阶段",
           tasks: []
         };
@@ -402,6 +476,7 @@ export default defineComponent({
 
     return {
       pipeline,
+      runtime,
       ...useTaskRet,
       ...useStageRet,
       ...useTrigger(),
@@ -419,11 +494,27 @@ export default defineComponent({
       }
     }
   }
+
+  .layout {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    .layout-left {
+      flex: 1;
+      height: 100%;
+    }
+    .layout-right {
+      width: 30%;
+      height: 100%;
+    }
+  }
   .pipeline-container {
     width: 100%;
     height: 100%;
     position: relative;
     background-color: #f0f0f0;
+    overflow: auto;
   }
   .pipeline {
     position: absolute;

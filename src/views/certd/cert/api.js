@@ -1,6 +1,6 @@
 import { request } from "/src/api/service";
 const apiPrefix = "/certd/cert";
-const accessPrefix = "/certd/access";
+const accessPrefix = "/pi/access";
 
 export function GetList(query) {
   return request({

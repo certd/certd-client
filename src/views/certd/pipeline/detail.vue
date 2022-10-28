@@ -6,6 +6,7 @@
       :do-save="doSave"
       :do-trigger="doTrigger"
       :plugins="plugins"
+      :histories="histories"
     ></pipeline-edit>
   </fs-page>
 </template>
@@ -14,6 +15,7 @@
 import { defineComponent, Ref, ref } from "vue";
 import PipelineEdit from "./pipeline/index.vue";
 import * as pluginApi from "./api.plugin";
+import * as historyApi from "./api.history";
 import * as api from "./api";
 import { useRoute } from "vue-router";
 
@@ -23,6 +25,7 @@ export default defineComponent({
   setup() {
     const route = useRoute();
     const pipeline: Ref<any> = ref({});
+    const histories: Ref<any> = ref([]);
     const pipelineId = route.query.id;
     const loadDetail = async () => {
       const detail = await api.GetDetail(pipelineId);
@@ -34,6 +37,11 @@ export default defineComponent({
       };
     };
     loadDetail();
+
+    const loadHistory = async () => {
+      histories.value = await historyApi.GetList({ pipelineId });
+    };
+    loadHistory();
 
     const plugins: Ref<any[]> = ref([]);
     const loadPlugin = async () => {
@@ -59,6 +67,7 @@ export default defineComponent({
 
     return {
       plugins,
+      histories,
       pipeline,
       doSave,
       doTrigger,

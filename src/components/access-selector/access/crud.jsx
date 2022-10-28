@@ -27,10 +27,10 @@ export default function ({ expose, props, ctx }) {
     return res;
   };
   let DNSProviderTypeDictRef = dict({
-    url: "/certd/access/dnsProviderTypeDict"
+    url: "/pi/access/dnsProviderTypeDict"
   });
   let AccessTypeDictRef = dict({
-    url: "/certd/access/accessTypeDict"
+    url: "/pi/access/accessTypeDict"
   });
   const selectedRowKey = ref([props.modelValue]);
   // watch(
