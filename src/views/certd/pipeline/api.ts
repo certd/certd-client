@@ -1,5 +1,5 @@
 import { request } from "/src/api/service";
-const apiPrefix = "/pipeline";
+const apiPrefix = "/pi/pipeline";
 
 export function GetList(query) {
   return request({
@@ -57,9 +57,9 @@ export function Save(pipeline) {
   });
 }
 
-export function Run(id) {
+export function Trigger(id) {
   return request({
-    url: apiPrefix + "/run",
+    url: apiPrefix + "/trigger",
     method: "post",
     params: { id }
   });

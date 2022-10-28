@@ -1,5 +1,5 @@
 <template>
-  <div class="fs-editable" :class="{ disabled, 'hover-show': hoverShow }">
+  <div class="pi-editable" :class="{ disabled, 'hover-show': hoverShow }">
     <div v-if="isEdit" class="input">
       <a-input
         ref="inputRef"
@@ -10,13 +10,13 @@
         @blur="save()"
       >
         <template #suffix>
-          <CheckOutlined style="color: rgba(0, 0, 0, 0.45)" @click="save()" />
+          <fs-icon icon="ant-design:check-outlined" @click="save()"></fs-icon>
         </template>
       </a-input>
     </div>
     <div v-else class="view" @click="edit">
       <span> {{ modelValue }}</span>
-      <EditOutlined class="ml-5 edit-icon" />
+      <fs-icon class="edit-icon" icon="ant-design:edit-outlined"></fs-icon>
     </div>
   </div>
 </template>
@@ -25,7 +25,7 @@
 import { watch, ref, nextTick } from "vue";
 
 export default {
-  name: "FsEditable",
+  name: "PiEditable",
   props: {
     modelValue: {
       type: String,
@@ -80,8 +80,16 @@ export default {
 </script>
 
 <style lang="less">
-.fs-editable {
+.pi-editable {
   line-height: 34px;
+
+  span.fs-iconify {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    margin-left: 2px;
+    margin-right: 2px;
+  }
 
   &.disabled {
     .edit-icon {
@@ -104,6 +112,8 @@ export default {
   .view {
     cursor: pointer;
     display: flex;
+    align-items: center;
+    justify-content: left;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="d-container">
+  <div class="pi-container">
     <div class="box">
       <div class="inner">
         <div class="header">
@@ -18,12 +18,12 @@
 
 <script>
 export default {
-  name: 'd-container'
-}
+  name: "PiContainer"
+};
 </script>
 
 <style lang="less">
-.d-container{
+.pi-container {
   height: 100%;
   width: 100%;
   position: relative;
@@ -33,24 +33,22 @@ export default {
     width: 100%;
     top: 0;
     left: 0;
-    .inner{
+    .inner {
       height: 100%;
       width: 100%;
       display: flex;
       flex-direction: column;
-      .header{
+      .header {
         flex-shrink: 0;
       }
-      .body{
+      .body {
         overflow-y: auto;
-        flex:1
+        flex: 1;
       }
-      .footer{
+      .footer {
         flex-shrink: 0;
       }
     }
-
   }
 }
-
 </style>

@@ -4,17 +4,17 @@
     placement="right"
     :closable="true"
     width="600px"
-    class="task-edit-form"
+    class="pi-task-form"
     :after-visible-change="taskDrawerOnAfterVisibleChange"
   >
     <template #title>
       编辑任务
-      <a-button v-if="mode === 'edit'" @click="taskDelete()">
+      <a-button v-if="editMode" @click="taskDelete()">
         <template #icon><DeleteOutlined /></template>
       </a-button>
     </template>
     <template v-if="currentTask">
-      <d-container class="d-container">
+      <pi-container>
         <a-form
           ref="taskFormRef"
           class="task-form"
@@ -71,14 +71,14 @@
           </div>
         </a-form>
 
-        <step-form ref="stepFormRef" :edit-mode="editMode"></step-form>
+        <pi-step-form ref="stepFormRef" :edit-mode="editMode"></pi-step-form>
 
         <template #footer>
           <a-form-item v-if="editMode" :wrapper-col="{ span: 14, offset: 4 }">
             <a-button type="primary" @click="taskSave"> 确定 </a-button>
           </a-form-item>
         </template>
-      </d-container>
+      </pi-container>
     </template>
   </a-drawer>
 </template>
@@ -87,12 +87,12 @@
 import { provide, Ref, ref } from "vue";
 import _ from "lodash-es";
 import { nanoid } from "nanoid";
-import StepForm from "../step-form/index.vue";
+import PiStepForm from "../step-form/index.vue";
 import { message, Modal } from "ant-design-vue";
 
 export default {
-  name: "TaskForm",
-  components: { StepForm },
+  name: "PiTaskForm",
+  components: { PiStepForm },
   props: {
     editMode: {
       type: Boolean,
@@ -182,7 +182,7 @@ export default {
 
       const taskOpen = (task, emit) => {
         callback.value = emit;
-        currentTask.value = _.cloneDeep(task);
+        currentTask.value = _.merge({ steps: {} }, task);
         console.log("currentTaskOpen", currentTask.value);
         taskDrawerShow();
       };
@@ -257,7 +257,7 @@ export default {
 </script>
 
 <style lang="less">
-.task-edit-form {
+.pi-task-form {
   .steps {
     margin: 0 50px 0 50px;
   }

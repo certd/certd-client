@@ -1,16 +1,16 @@
-import ComponentRender from "./component-render.vue";
-import DContainer from "./d-container.vue";
-import AccessSelector from "./access-selector/index.vue";
-import OutputSelector from "./output-selector/index.vue";
-import FsEditable from "./fs-editable.vue";
+import PiContainer from "./container.vue";
+import PiAccessSelector from "./access-selector/index.vue";
+import PiDnsProviderSelector from "./dns-provider-selector/index.vue";
+import PiOutputSelector from "../views/certd/pipeline/pipeline/output-selector/index.vue";
+import PiEditable from "./editable.vue";
 import { CheckCircleOutlined, InfoCircleOutlined, UndoOutlined } from "@ant-design/icons-vue";
 export default {
   install(app) {
-    app.component("ComponentRender", ComponentRender);
-    app.component("DContainer", DContainer);
-    app.component("AccessSelector", AccessSelector);
-    app.component("FsEditable", FsEditable);
-    app.component("OutputSelector", OutputSelector);
+    app.component("PiContainer", PiContainer);
+    app.component("PiAccessSelector", PiAccessSelector);
+    app.component("PiEditable", PiEditable);
+    app.component("PiOutputSelector", PiOutputSelector);
+    app.component("PiDnsProviderSelector", PiDnsProviderSelector);
 
     app.component("CheckCircleOutlined", CheckCircleOutlined);
     app.component("InfoCircleOutlined", InfoCircleOutlined);

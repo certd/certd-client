@@ -1,6 +1,6 @@
 import { request } from "/src/api/service";
 import _ from "lodash-es";
-const apiPrefix = "/plugin";
+const apiPrefix = "/pi/plugin";
 
 const defaultInputDefine = {
   component: {

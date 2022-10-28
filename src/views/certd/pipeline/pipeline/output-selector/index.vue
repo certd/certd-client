@@ -1,13 +1,13 @@
 <template>
-  <a-select class="output-selector" :value="modelValue" :options="options" @update:value="onChanged"> </a-select>
+  <a-select class="pi-output-selector" :value="modelValue" :options="options" @update:value="onChanged"> </a-select>
 </template>
 
 <script lang="ts">
-import { inject, Ref, ref, watch } from "vue";
+import { inject, onMounted, Ref, ref, watch } from "vue";
 import { pluginManager } from "../plugin";
 
 export default {
-  name: "OutputSelector",
+  name: "PiOutputSelector",
   props: {
     modelValue: {
       type: String,
@@ -34,7 +34,18 @@ export default {
         ctx.emit("update:modelValue", options.value[0].value);
       }
     }
-    onCreate();
+    onMounted(() => {
+      onCreate();
+    });
+
+    watch(
+      () => {
+        return pluginManager.map;
+      },
+      () => {
+        onCreate();
+      }
+    );
 
     function onChanged(value) {
       ctx.emit("update:modelValue", value);
@@ -47,52 +58,4 @@ export default {
 };
 </script>
 
-<style lang="less">
-.step-edit-form {
-  .body {
-    padding: 10px;
-    .ant-card {
-      margin-bottom: 10px;
-
-      &.current {
-        border-color: #00b7ff;
-      }
-
-      .ant-card-meta-title {
-        display: flex;
-        flex-direction: row;
-        justify-content: flex-start;
-      }
-
-      .ant-avatar {
-        width: 24px;
-        height: 24px;
-        flex-shrink: 0;
-      }
-
-      .title {
-        margin-left: 5px;
-        white-space: nowrap;
-        flex: 1;
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-    }
-
-    .ant-card-body {
-      padding: 14px;
-      height: 100px;
-
-      overflow-y: hidden;
-
-      .ant-card-meta-description {
-        font-size: 10px;
-        line-height: 20px;
-        height: 40px;
-        color: #7f7f7f;
-      }
-    }
-  }
-}
-</style>
+<style lang="less"></style>

@@ -2,7 +2,7 @@
   <fs-page class="page-pipeline-edit">
     <template #header>
       <div class="title">
-        <fs-editable v-model="pipeline.title" :hover-show="false" :disabled="!editMode"></fs-editable>
+        <pi-editable v-model="pipeline.title" :hover-show="false" :disabled="!editMode"></pi-editable>
       </div>
       <div class="more">
         <template v-if="editMode">
@@ -19,7 +19,7 @@
         <div class="stages">
           <div class="stage first-stage">
             <div class="title">
-              <fs-editable model-value="触发源" :disabled="true" />
+              <pi-editable model-value="触发源" :disabled="true" />
             </div>
             <div class="tasks">
               <div class="task-container first-task">
@@ -66,7 +66,7 @@
             :class="{ 'last-stage': !editMode && index === pipeline.stages.length - 1 }"
           >
             <div class="title">
-              <fs-editable v-model="stage.title" :disabled="!editMode"></fs-editable>
+              <pi-editable v-model="stage.title" :disabled="!editMode"></pi-editable>
             </div>
             <div class="tasks">
               <div
@@ -107,7 +107,7 @@
 
           <div v-if="editMode" class="stage last-stage">
             <div class="title">
-              <fs-editable model-value="新阶段" :disabled="true" />
+              <pi-editable model-value="新阶段" :disabled="true" />
             </div>
             <div class="tasks">
               <div class="task-container first-task">
@@ -128,21 +128,22 @@
       </div>
     </div>
 
-    <task-form ref="taskFormRef" :edit-mode="editMode"></task-form>
-    <trigger-form ref="triggerFormRef" :edit-mode="editMode"></trigger-form>
+    <pi-task-form ref="taskFormRef" :edit-mode="editMode"></pi-task-form>
+    <pi-trigger-form ref="triggerFormRef" :edit-mode="editMode"></pi-trigger-form>
   </fs-page>
 </template>
 
 <script lang="ts">
 import { defineComponent, ref, provide, Ref, watch } from "vue";
-import TaskForm from "./task-form/index.vue";
-import TriggerForm from "./trigger-form/index.vue";
+import PiTaskForm from "./task-form/index.vue";
+import PiTriggerForm from "./trigger-form/index.vue";
 import _ from "lodash-es";
-import { Modal, notification } from "ant-design-vue";
+import { message, Modal, notification } from "ant-design-vue";
 import { pluginManager } from "/@/views/certd/pipeline/pipeline/plugin";
 export default defineComponent({
   name: "PipelineEdit",
-  components: { TaskForm, TriggerForm },
+  // eslint-disable-next-line vue/no-unused-components
+  components: { PiTaskForm, PiTriggerForm },
   props: {
     modelValue: {
       type: Object,
@@ -158,7 +159,7 @@ export default defineComponent({
       type: Function,
       default: undefined
     },
-    doRun: {
+    doTrigger: {
       type: Function,
       default: undefined
     },
@@ -216,10 +217,7 @@ export default defineComponent({
         return props.modelValue;
       },
       (value) => {
-        if (!value) {
-          value = { title: "新管道流程", stages: [], triggers: [] };
-        }
-        pipeline.value = value;
+        pipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, value);
       }
     );
 
@@ -237,7 +235,6 @@ export default defineComponent({
     provide("pipeline", pipeline);
     provide("plugins", plugins);
 
-    const editMode = ref(false);
     watch(
       () => {
         return props.plugins;
@@ -254,7 +251,7 @@ export default defineComponent({
       const currentTaskIndex = ref(0);
       provide("currentStageIndex", currentStageIndex);
       provide("currentTaskIndex", currentTaskIndex);
-      const taskAdd = (stage: any, stageIndex: number, onSuccess) => {
+      const taskAdd = (stage: any, stageIndex: number, onSuccess?) => {
         currentStageIndex.value = stageIndex;
         currentTaskIndex.value = stage.tasks.length;
         taskFormRef.value.taskAdd((type, value) => {
@@ -266,13 +263,13 @@ export default defineComponent({
           }
         });
       };
-      const taskEdit = (stage, stageIndex, task, taskIndex, onSuccess) => {
+      const taskEdit = (stage, stageIndex, task, taskIndex, onSuccess?) => {
         currentStageIndex.value = stageIndex;
         currentTaskIndex.value = taskIndex;
         if (taskFormRef.value == null) {
           return;
         }
-        if (editMode.value) {
+        if (props.editMode) {
           taskFormRef.value.taskEdit(task, (type, value) => {
             if (type === "delete") {
               stage.tasks.splice(taskIndex, 1);
@@ -328,7 +325,7 @@ export default defineComponent({
         if (triggerFormRef.value == null) {
           return;
         }
-        if (editMode.value) {
+        if (props.editMode) {
           triggerFormRef.value.triggerEdit(trigger, (type, value) => {
             if (type === "delete") {
               pipeline.value.triggers.splice(index, 1);
@@ -351,19 +348,19 @@ export default defineComponent({
       const backup = ref();
       const saveLoading = ref();
       const run = async () => {
-        if (editMode.value) {
-          notification.warn({ message: "请先保存，再运行管道" });
+        if (props.editMode) {
+          message.warn("请先保存，再运行管道");
           return;
         }
-        if (!props.doRun) {
-          notification.warn({ message: "暂不支持运行" });
+        if (!props.doTrigger) {
+          message.warn("暂不支持运行");
         }
         Modal.confirm({
           title: "确认",
           content: `确定要手动触发运行吗？`,
           async onOk() {
             //@ts-ignore
-            await props.doRun(pipeline.value);
+            await props.doTrigger(pipeline.value);
             notification.success({ message: "管道已经开始运行" });
           }
         });
@@ -417,7 +414,7 @@ export default defineComponent({
 .page-pipeline-edit {
   .fs-page-header {
     .title {
-      .fs-editable {
+      .pi-editable {
         width: 300px;
       }
     }
@@ -435,7 +432,6 @@ export default defineComponent({
     height: 100%;
     background-color: #f0f0f0;
     .stages {
-      padding-left: 20px;
       display: flex;
       overflow: auto;
       min-width: 100%;

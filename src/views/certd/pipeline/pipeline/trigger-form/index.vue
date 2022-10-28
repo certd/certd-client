@@ -4,6 +4,7 @@
     placement="right"
     :closable="true"
     width="600px"
+    class="pi-trigger-form"
     :after-visible-change="triggerDrawerOnAfterVisibleChange"
   >
     <template #title>
@@ -13,7 +14,7 @@
       </a-button>
     </template>
     <template v-if="currentTrigger">
-      <d-container>
+      <pi-container>
         <a-form
           ref="triggerFormRef"
           class="trigger-form"
@@ -69,7 +70,7 @@
             <a-button type="primary" @click="triggerSave"> 确定 </a-button>
           </a-form-item>
         </template>
-      </d-container>
+      </pi-container>
     </template>
   </a-drawer>
 </template>
@@ -80,7 +81,7 @@ import { inject, ref } from "vue";
 import _ from "lodash-es";
 import { nanoid } from "nanoid";
 export default {
-  name: "TriggerForm",
+  name: "PiTriggerForm",
   props: {
     isEdit: {
       type: Boolean,
@@ -199,51 +200,6 @@ export default {
 </script>
 
 <style lang="less">
-.trigger-edit-form {
-  .body {
-    padding: 10px;
-    .ant-card {
-      margin-bottom: 10px;
-
-      &.current {
-        border-color: #00b7ff;
-      }
-
-      .ant-card-meta-title {
-        display: flex;
-        flex-direction: row;
-        justify-content: flex-start;
-      }
-
-      .ant-avatar {
-        width: 24px;
-        height: 24px;
-        flex-shrink: 0;
-      }
-
-      .title {
-        margin-left: 5px;
-        white-space: nowrap;
-        flex: 1;
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-    }
-
-    .ant-card-body {
-      padding: 14px;
-      height: 100px;
-
-      overflow-y: hidden;
-
-      .ant-card-meta-description {
-        font-size: 10px;
-        line-height: 20px;
-        height: 40px;
-        color: #7f7f7f;
-      }
-    }
-  }
+.pi-trigger-form {
 }
 </style>

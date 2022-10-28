@@ -4,7 +4,7 @@
       v-model:edit-mode="editMode"
       v-model:model-value="pipeline"
       :do-save="doSave"
-      :do-run="doRun"
+      :do-trigger="doTrigger"
       :plugins="plugins"
     ></pipeline-edit>
   </fs-page>
@@ -48,8 +48,8 @@ export default defineComponent({
         content: JSON.stringify(pipelineConfig)
       });
     }
-    async function doRun() {
-      await api.Run(pipeline.value.id);
+    async function doTrigger() {
+      await api.Trigger(pipeline.value.id);
     }
 
     const editMode = ref(false);
@@ -61,7 +61,7 @@ export default defineComponent({
       plugins,
       pipeline,
       doSave,
-      doRun,
+      doTrigger,
       editMode
     };
   }

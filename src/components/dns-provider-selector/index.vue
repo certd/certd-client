@@ -1,13 +1,14 @@
 <template>
-  <a-select class="output-selector" :value="modelValue" :options="options" @update:value="onChanged"> </a-select>
+  <a-select class="pi-dns-provider-selector" :value="modelValue" :options="options" @update:value="onChanged">
+  </a-select>
 </template>
 
 <script lang="ts">
 import { inject, Ref, ref, watch } from "vue";
-import { pluginLoader } from "./plugin";
+import * as api from "./api";
 
 export default {
-  name: "OutputSelector",
+  name: "PiDnsProviderSelector",
   props: {
     modelValue: {
       type: String,
@@ -18,18 +19,16 @@ export default {
   setup(props, ctx) {
     const options = ref<any[]>([]);
 
-    const pipeline = inject("pipeline") as Ref<any>;
-    const currentStageIndex = inject("currentStageIndex") as Ref<number>;
-    const currentStepIndex = inject("currentStepIndex") as Ref<number>;
-    const currentTask = inject("currentTask") as Ref<any>;
-
     async function onCreate() {
-      options.value = await pluginLoader.getPreStepOutputOptions({
-        pipeline: pipeline.value,
-        currentStageIndex: currentStageIndex.value,
-        currentStepIndex: currentStepIndex.value,
-        currentTask: currentTask.value
-      });
+      const list = await api.GetList();
+      const array: any[] = [];
+      for (let item of list) {
+        array.push({
+          value: item.name,
+          label: item.title
+        });
+      }
+      options.value = array;
       if (props.modelValue == null && options.value.length > 0) {
         ctx.emit("update:modelValue", options.value[0].value);
       }

@@ -1,5 +1,5 @@
 <template>
-  <div class="access-selector">
+  <div class="pi-access-selector">
     <span v-if="target.name" class="mlr-5">{{ target.name }}</span>
     <span v-else class="mlr-5 gray">请选择</span>
     <a-button @click="chooseForm.open">选择</a-button>
@@ -19,7 +19,7 @@ import * as api from "./access/api";
 import CertAccessModal from "./access/index.vue";
 
 export default defineComponent({
-  name: "AccessSelector",
+  name: "PiAccessSelector",
   components: { CertAccessModal },
   props: {
     modelValue: {

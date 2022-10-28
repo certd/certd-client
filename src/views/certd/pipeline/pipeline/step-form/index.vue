@@ -8,12 +8,12 @@
   >
     <template #title>
       编辑任务
-      <a-button v-if="mode === 'edit'" @click="stepDelete()">
+      <a-button v-if="editMode" @click="stepDelete()">
         <template #icon><DeleteOutlined /></template>
       </a-button>
     </template>
     <template v-if="currentStep">
-      <d-container v-if="currentStep._isAdd" class="step-edit-form">
+      <pi-container v-if="currentStep._isAdd" class="pi-step-form">
         <a-row :gutter="10">
           <a-col v-for="(item, index) of stepPluginDefineList" :key="index" class="step-plugin" :span="12">
             <a-card
@@ -38,8 +38,8 @@
           </a-col>
         </a-row>
         <a-button v-if="editMode" type="primary" @click="stepTypeSave"> 确定 </a-button>
-      </d-container>
-      <d-container v-else class="d-container">
+      </pi-container>
+      <pi-container v-else class="pi-step-form">
         <a-form
           ref="stepFormRef"
           class="step-form"
@@ -70,7 +70,7 @@
             <a-button type="primary" @click="stepSave"> 确定 </a-button>
           </a-form-item>
         </template>
-      </d-container>
+      </pi-container>
     </template>
   </a-drawer>
 </template>
@@ -81,7 +81,7 @@ import { inject, ref } from "vue";
 import _ from "lodash-es";
 import { nanoid } from "nanoid";
 export default {
-  name: "StepForm",
+  name: "PiStepForm",
   props: {
     editMode: {
       type: Boolean,
@@ -152,7 +152,8 @@ export default {
 
       const stepOpen = (step, emit) => {
         callback.value = emit;
-        currentStep.value = _.cloneDeep(step);
+        currentStep.value = _.merge({ input: {} }, step);
+
         console.log("currentStepOpen", currentStep.value);
         if (step.type) {
           changeCurrentPlugin(currentStep.value);
@@ -249,7 +250,7 @@ export default {
 </script>
 
 <style lang="less">
-.step-edit-form {
+.pi-step-form {
   .body {
     padding: 10px;
     .ant-card {
