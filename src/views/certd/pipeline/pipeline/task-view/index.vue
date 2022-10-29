@@ -1,13 +1,13 @@
 <template>
-  <a-modal v-model:visible="taskModal.visible">
+  <a-modal v-model:visible="taskModal.visible" style="width: 1000px">
     <a-tabs v-model:activeKey="activeKey" tab-position="left" animated>
       <a-tab-pane v-for="item of detail.nodes" :key="item.node.id">
         <template #tab>
           【{{ item.type }}】 {{ item.node.title }}
-          <pi-status-show :status="item.result.status" type="icon"></pi-status-show>
+          <pi-status-show :status="item.node.status.result" type="icon"></pi-status-show>
         </template>
-        <div class="logs">
-          <p v-for="(text, index) of item.logs" :key="index">{{ text }}</p>
+        <div class="pi-task-view-logs">
+          <div v-for="(text, index) of item.logs" :key="index">{{ text }}</div>
         </div>
       </a-tab-pane>
     </a-tabs>
@@ -47,16 +47,12 @@ export default {
           node: step,
           type: "步骤",
           tab: 2,
-          logs: [],
-          result: {}
+          logs: []
         });
       }
       for (let node of nodes) {
         if (currentHistory?.value?.logs != null) {
-          node.logs = currentHistory.value.logs[node.id] || [];
-        }
-        if (currentHistory?.value?.results != null) {
-          node.result = currentHistory.value.results[node.id] || [];
+          node.logs = currentHistory.value.logs[node.node.id] || [];
         }
       }
       detail.value = { nodes };
@@ -79,9 +75,9 @@ export default {
 </script>
 
 <style lang="less">
-.pi-task-form {
-  .steps {
-    margin: 0 50px 0 50px;
-  }
+.pi-task-view-logs {
+  background-color: #000c17;
+  color: #fafafa;
+  min-height: 400px;
 }
 </style>

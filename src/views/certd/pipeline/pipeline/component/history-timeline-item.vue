@@ -33,7 +33,7 @@ export default defineComponent({
       type: Boolean
     }
   },
-  emits: ["view"],
+  emits: ["view", "cancel"],
   setup(props, ctx) {
     const status: Ref = ref({});
     status.value = statusUtil.get(props.runnable.status?.result);

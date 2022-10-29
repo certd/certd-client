@@ -210,6 +210,7 @@ export default defineComponent({
       pipeline.value = history.pipeline;
       const log = await props.options.getHistoryLog({ historyId: history.id });
       currentHistory.value.logs = log.logs;
+      console.log("currentHistory:", currentHistory);
     };
     watch(
       () => {
@@ -421,8 +422,7 @@ export default defineComponent({
 
     function useHistory() {
       const historyView = (history) => {
-        pipeline.value = history.pipeline;
-        currentHistory.value = history;
+        changeCurrentHistory(history);
         console.log("currentPipeline", pipeline);
       };
 
