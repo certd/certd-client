@@ -1,6 +1,5 @@
 import { request } from "/src/api/service";
-import _ from "lodash-es";
-import dayjs from "dayjs";
+
 const apiPrefix = "/pi/history";
 
 export async function GetList(query) {
@@ -10,13 +9,25 @@ export async function GetList(query) {
     data: query
   });
   for (const item of list) {
-    if (item.results) {
-      item.results = JSON.parse(item.results);
-    }
-    if (item.logs) {
-      item.logs = JSON.parse(item.logs);
+    if (item.pipeline) {
+      item.pipeline = JSON.parse(item.pipeline);
     }
   }
   console.log("history", list);
   return list;
+}
+
+export async function GetLogs(historyId: any) {
+  const log = await request({
+    url: apiPrefix + "/logs",
+    method: "post",
+    params: { id: historyId }
+  });
+
+  if (log) {
+    log.logs = JSON.parse(log?.logs || "{}");
+    return log;
+  } else {
+    return { logs: {} };
+  }
 }

@@ -189,7 +189,7 @@ export default {
 
       const taskAdd = (emit) => {
         mode.value = "add";
-        const task = { id: nanoid(), title: "新任务", steps: [] };
+        const task = { id: nanoid(), title: "新任务", steps: [], status: null };
         taskOpen(task, emit);
       };
 

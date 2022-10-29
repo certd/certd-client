@@ -163,7 +163,7 @@ export default {
 
       const stepAdd = (emit) => {
         mode.value = "add";
-        const step = { id: nanoid(), title: "新任务", type: undefined, _isAdd: true, input: {} };
+        const step = { id: nanoid(), title: "新任务", type: undefined, _isAdd: true, input: {}, status: null };
         stepOpen(step, emit);
       };
 

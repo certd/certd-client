@@ -91,9 +91,10 @@
                       ></fs-icon>
                     </div>
                     <div class="task">
-                      <a-button shape="round" @click="taskEdit(stage, index, task, taskIndex)">{{
-                        task.title
-                      }}</a-button>
+                      <a-button shape="round" @click="taskEdit(stage, index, task, taskIndex)">
+                        {{ task.title }}
+                        <pi-status-show :status="task.status?.result"></pi-status-show>
+                      </a-button>
                     </div>
                   </div>
                   <div v-if="editMode" class="task-container is-add">
@@ -142,41 +143,15 @@
       <div class="layout-right">
         <a-page-header title="运行历史" sub-title="申请证书，并自动部署">
           <a-timeline class="mt-10">
-            <a-timeline-item v-for="item of histories" :key="item.id" color="blue">
-              <template #dot>
-                <fs-icon v-if="item.results[pipeline.id].status === 'start'" icon="ion:refresh" :spin="true" />
-                <fs-icon
-                  v-if="item.results[pipeline.id].status === 'success'"
-                  icon="ant-design:check-circle-outlined"
-                />
-                <fs-icon v-if="item.results[pipeline.id].status === 'error'" icon="ant-design:info-circle-outlined" />
-              </template>
-              <p>
-                <fs-date-format class="mr-10" :model-value="item.results[pipeline.id].startTime"></fs-date-format>
-
-                <a-tag v-if="item.results[pipeline.id].status === 'start'" color="blue">进行中</a-tag>
-                <a-tag v-if="item.results[pipeline.id].status === 'success'" color="success">成功</a-tag>
-                <a-tag v-if="item.results[pipeline.id].status === 'error'" color="red">错误</a-tag>
-              </p>
-            </a-timeline-item>
-            <a-timeline-item color="green">
-              <template #dot>
-                <CheckCircleOutlined />
-              </template>
-              <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
-            </a-timeline-item>
-            <a-timeline-item color="green">
-              <template #dot>
-                <CheckCircleOutlined />
-              </template>
-              <p>2015-09-01 11:11:11 <a-tag color="success">成功</a-tag></p>
-            </a-timeline-item>
-            <a-timeline-item color="red">
-              <template #dot>
-                <info-circle-outlined />
-              </template>
-              <p>2015-09-01 11:11:11 <a-tag color="warning">日志</a-tag> <a-tag color="red">任务(xxxx)失败</a-tag></p>
-            </a-timeline-item>
+            <template v-for="item of histories" :key="item.id">
+              <pi-history-timeline-item
+                :runnable="item.pipeline"
+                :is-current="currentHistory?.id === item.id"
+                @view="historyView(item)"
+                @cancel="historyCancel()"
+              ></pi-history-timeline-item>
+            </template>
+            <a-empty v-if="histories.length === 0"> </a-empty>
           </a-timeline>
         </a-page-header>
       </div>
@@ -184,6 +159,7 @@
 
     <pi-task-form ref="taskFormRef" :edit-mode="editMode"></pi-task-form>
     <pi-trigger-form ref="triggerFormRef" :edit-mode="editMode"></pi-trigger-form>
+    <pi-task-view ref="taskViewRef"></pi-task-view>
   </fs-page>
 </template>
 
@@ -191,132 +167,87 @@
 import { defineComponent, ref, provide, Ref, watch } from "vue";
 import PiTaskForm from "./task-form/index.vue";
 import PiTriggerForm from "./trigger-form/index.vue";
+import PiTaskView from "./task-view/index.vue";
+import PiStatusShow from "./component/status-show.vue";
 import _ from "lodash-es";
 import { message, Modal, notification } from "ant-design-vue";
 import { pluginManager } from "/@/views/certd/pipeline/pipeline/plugin";
 import { nanoid } from "nanoid";
+import { PipelineDetail, PipelineOptions, RunHistory } from "/@/views/certd/pipeline/pipeline/type";
+import { statusUtil } from "./utils/util.status";
+import PiHistoryTimelineItem from "/@/views/certd/pipeline/pipeline/component/history-timeline-item.vue";
 export default defineComponent({
   name: "PipelineEdit",
   // eslint-disable-next-line vue/no-unused-components
-  components: { PiTaskForm, PiTriggerForm },
+  components: { PiHistoryTimelineItem, PiTaskForm, PiTriggerForm, PiTaskView, PiStatusShow },
   props: {
-    modelValue: {
-      type: Object,
-      default() {
-        return { stages: [] };
-      }
+    pipelineId: {
+      type: [Number, String],
+      default: 0
     },
     editMode: {
       type: Boolean,
       default: false
     },
-    doSave: {
-      type: Function,
-      default: undefined
-    },
-    doTrigger: {
-      type: Function,
-      default: undefined
-    },
-    plugins: {
-      type: Array,
+    options: {
+      type: Object as PropType<PipelineOptions>,
       default() {
-        return [];
-      }
-    },
-    histories: {
-      type: Array,
-      default() {
-        return [];
+        return {};
       }
     }
   },
   emits: ["update:modelValue", "update:editMode"],
   setup(props, ctx) {
-    const pipeline: Ref<any> = ref({
-      title: "新流水线",
-      triggers: [
-        {
-          id: 0,
-          title: "定时每天5点",
-          type: "time",
-          props: {
-            cron: "* * 5 * *"
+    const currentPipeline: Ref<any> = ref({});
+    const pipeline: Ref<any> = ref({});
+
+    const histories: Ref<RunHistory[]> = ref([]);
+
+    const currentHistory: Ref<any> = ref({});
+
+    const changeCurrentHistory = async (history: any) => {
+      currentHistory.value = history;
+      pipeline.value = history.pipeline;
+      const log = await props.options.getHistoryLog({ historyId: history.id });
+      currentHistory.value.logs = log.logs;
+    };
+    watch(
+      () => {
+        return props.pipelineId;
+      },
+      async (value) => {
+        if (!value) {
+          return;
+        }
+        const detail: PipelineDetail = await props.options.getPipelineDetail({ pipelineId: value });
+        currentPipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, detail.pipeline);
+        pipeline.value = currentPipeline.value;
+        const historyList = await props.options.getHistoryList({ pipelineId: pipeline.value.id });
+        histories.value = historyList;
+
+        if (historyList.length > 0) {
+          if (historyList[0].pipeline.version === pipeline.value.version) {
+            await changeCurrentHistory(historyList[0]);
           }
         }
-      ],
-      stages: [
-        {
-          id: 1,
-          title: "证书申请阶段",
-          tasks: [{ id: 2, title: "证书申请任务", steps: [{ id: 3, title: "申请证书", type: "CertApply", input: {} }] }]
-        },
-        {
-          id: 2,
-          title: "部署证书",
-          tasks: [
-            {
-              id: 2,
-              title: "部署到阿里云",
-              steps: [{ id: 3, title: "部署到cdn", type: "DeployCertToAliyunCDN", input: {} }]
-            },
-            {
-              id: 2,
-              title: "部署到腾讯云",
-              steps: [
-                { id: 4, title: "上传到腾讯云", type: "UploadCertToTencent", input: {} },
-                { id: 5, title: "部署到cdn", type: "DeployCertToTencentCDN", input: {} }
-              ]
-            }
-          ]
-        }
-      ]
-    });
-
-    watch(
-      () => {
-        return props.modelValue;
       },
-      (value) => {
-        pipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, value);
+      {
+        immediate: true
       }
     );
 
-    const runtime: Ref<any> = ref({});
-    watch(
-      () => {
-        return props.history;
-      },
-      (value) => {
-        if (props.history?.length > 0) {
-          runtime.value = props.history[0];
-        }
-      }
-    );
+    const plugins: Ref<any> = ref([]);
 
-    const plugins = ref(props.plugins);
-    watch(
-      () => {
-        return props.plugins;
-      },
-      (value) => {
-        plugins.value = value;
-        pluginManager.init(value);
-      }
-    );
+    const fetchPlugins = async () => {
+      const list = await props.options.getPlugins();
+      plugins.value = list;
+      pluginManager.init(list);
+    };
+    fetchPlugins();
 
     provide("pipeline", pipeline);
     provide("plugins", plugins);
-
-    watch(
-      () => {
-        return props.plugins;
-      },
-      (value) => {
-        plugins.value = value;
-        pluginManager.init(value);
-      }
-    );
+    provide("currentHistory", currentHistory);
 
     function useTask() {
       const taskFormRef: Ref<any> = ref(null);
@@ -324,6 +255,20 @@ export default defineComponent({
       const currentTaskIndex = ref(0);
       provide("currentStageIndex", currentStageIndex);
       provide("currentTaskIndex", currentTaskIndex);
+
+      function useTaskView() {
+        const taskViewRef: Ref<any> = ref(null);
+        const taskViewOpen = (task) => {
+          taskViewRef.value.open(task);
+        };
+        return {
+          taskViewOpen,
+          taskViewRef
+        };
+      }
+
+      const taskView = useTaskView();
+
       const taskAdd = (stage: any, stageIndex: number, onSuccess?) => {
         currentStageIndex.value = stageIndex;
         currentTaskIndex.value = stage.tasks.length;
@@ -359,11 +304,11 @@ export default defineComponent({
             }
           });
         } else {
-          taskFormRef.value.taskView(task, (type, value) => {});
+          taskView.taskViewRef.value.taskViewOpen(task);
         }
       };
 
-      return { taskAdd, taskEdit, taskFormRef };
+      return { taskAdd, taskEdit, taskFormRef, ...taskView };
     }
 
     function useStage(useTaskRet) {
@@ -371,7 +316,8 @@ export default defineComponent({
         const stage = {
           id: nanoid(),
           title: "新阶段",
-          tasks: []
+          tasks: [],
+          status: null
         };
         //stage: any, stageIndex: number, onSuccess
         useTaskRet.taskAdd(stage, stageIndex, () => {
@@ -419,14 +365,13 @@ export default defineComponent({
     }
 
     function useActions() {
-      const backup = ref();
       const saveLoading = ref();
       const run = async () => {
         if (props.editMode) {
           message.warn("请先保存，再运行管道");
           return;
         }
-        if (!props.doTrigger) {
+        if (!props.options.doTrigger) {
           message.warn("暂不支持运行");
         }
         Modal.confirm({
@@ -434,7 +379,7 @@ export default defineComponent({
           content: `确定要手动触发运行吗？`,
           async onOk() {
             //@ts-ignore
-            await props.doTrigger(pipeline.value);
+            await props.options.doTrigger({ pipelineId: pipeline.value.id });
             notification.success({ message: "管道已经开始运行" });
           }
         });
@@ -445,23 +390,26 @@ export default defineComponent({
       const save = async () => {
         saveLoading.value = true;
         try {
-          if (props.doSave) {
-            await props.doSave(pipeline.value);
+          if (props.options.doSave) {
+            pipeline.value.version++;
+            await props.options.doSave(pipeline.value);
+            currentPipeline.value = pipeline.value;
           }
-          ctx.emit("update:modelValue", pipeline.value);
           toggleEditMode(false);
         } finally {
           saveLoading.value = false;
         }
       };
       const edit = () => {
-        backup.value = _.cloneDeep(pipeline.value);
+        pipeline.value = _.cloneDeep(currentPipeline.value);
+        currentHistory.value = null;
         toggleEditMode(true);
       };
       const cancel = () => {
-        pipeline.value = backup.value;
+        pipeline.value = currentPipeline.value;
         toggleEditMode(false);
       };
+
       return {
         run,
         save,
@@ -471,16 +419,36 @@ export default defineComponent({
       };
     }
 
+    function useHistory() {
+      const historyView = (history) => {
+        pipeline.value = history.pipeline;
+        currentHistory.value = history;
+        console.log("currentPipeline", pipeline);
+      };
+
+      const historyCancel = () => {
+        pipeline.value = currentPipeline.value;
+        currentHistory.value = null;
+        console.log("currentPipeline", pipeline);
+      };
+
+      return {
+        historyView,
+        historyCancel
+      };
+    }
     const useTaskRet = useTask();
     const useStageRet = useStage(useTaskRet);
 
     return {
       pipeline,
-      runtime,
+      currentHistory,
+      histories,
       ...useTaskRet,
       ...useStageRet,
       ...useTrigger(),
-      ...useActions()
+      ...useActions(),
+      ...useHistory()
     };
   }
 });

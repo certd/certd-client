@@ -29,7 +29,8 @@
               key: 'title',
               component: {
                 name: 'a-input',
-                vModel: 'value'
+                vModel: 'value',
+                disabled: !editMode
               },
               rules: [{ required: true, message: '此项必填' }]
             }"
@@ -44,6 +45,7 @@
                 name: 'a-select',
                 vModel: 'value',
                 value: 'timer',
+                disabled: !editMode,
                 options: [{ value: 'timer', label: '定时' }]
               },
               rules: [{ required: true, message: '此项必填' }]
@@ -56,6 +58,7 @@
               title: '定时脚本',
               key: 'props.cron',
               component: {
+                disabled: !editMode,
                 name: 'a-input',
                 vModel: 'value'
               },
@@ -66,7 +69,7 @@
         </a-form>
 
         <template #footer>
-          <a-form-item v-if="isEdit" :wrapper-col="{ span: 14, offset: 4 }">
+          <a-form-item v-if="editMode" :wrapper-col="{ span: 14, offset: 4 }">
             <a-button type="primary" @click="triggerSave"> 确定 </a-button>
           </a-form-item>
         </template>
@@ -83,7 +86,7 @@ import { nanoid } from "nanoid";
 export default {
   name: "PiTriggerForm",
   props: {
-    isEdit: {
+    editMode: {
       type: Boolean,
       default: true
     }
