@@ -1,7 +1,7 @@
 import LayoutFramework from "/src/layout/layout-framework.vue";
-//import { crudResources } from "/@/router/source/modules/crud";
 import { sysResources } from "/@/router/source/modules/sys";
 import { certdResources } from "/@/router/source/modules/certd";
+
 export const frameworkResource = [
   {
     title: "框架",
@@ -10,7 +10,8 @@ export const frameworkResource = [
     redirect: "/index",
     component: LayoutFramework,
     meta: {
-      icon: "ion:accessibility"
+      icon: "ion:accessibility",
+      auth: true
     },
     children: [
       {

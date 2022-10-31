@@ -1,26 +1,22 @@
-import { PluginDefine } from "@certd/pipeline/src";
-
+import { PluginDefine, Pipeline } from "@certd/pipeline/src";
+export * from "@certd/pipeline/src";
 export type PipelineDetail = {
-  pipeline: PipelineDefine;
+  pipeline: Pipeline;
 };
 
 export type RunHistory = {
   id: any;
-  pipeline: PipelineDefine;
+  pipeline: Pipeline;
   logs?: {
     [id: string]: string[];
   };
 };
-export type RunHistoryLog = {
-  logs: {
-    [id: string]: string[];
-  };
-};
+
 export type PipelineOptions = {
   doTrigger(options: { pipelineId }): Promise<void>;
   doSave(pipelineConfig: PipelineDefile): Promise<void>;
   getPipelineDetail(query: { pipelineId }): Promise<PipelineDetail>;
   getHistoryList(query: { pipelineId }): Promise<RunHistory[]>;
-  getHistoryLog(query: { historyId }): Promise<RunHistoryLog>;
+  getHistoryDetail(query: { historyId }): Promise<RunHistory>;
   getPlugins(): Promise<PluginDefine[]>;
 };

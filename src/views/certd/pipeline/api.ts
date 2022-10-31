@@ -49,11 +49,11 @@ export function GetDetail(id) {
   });
 }
 
-export function Save(pipeline) {
+export function Save(pipelineEntity) {
   return request({
     url: apiPrefix + "/save",
     method: "post",
-    data: pipeline
+    data: pipelineEntity
   });
 }
 

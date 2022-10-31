@@ -1,5 +1,5 @@
 <template>
-  <fs-page class="page-pipeline-edit">
+  <fs-page v-if="pipeline" class="page-pipeline-edit">
     <template #header>
       <div class="title">
         <pi-editable v-model="pipeline.title" :hover-show="false" :disabled="!editMode"></pi-editable>
@@ -141,12 +141,13 @@
       </div>
 
       <div class="layout-right">
-        <a-page-header title="运行历史" sub-title="申请证书，并自动部署">
+        <a-page-header title="运行历史" sub-title="点任务可查看日志" class="logs-block">
           <a-timeline class="mt-10">
             <template v-for="item of histories" :key="item.id">
               <pi-history-timeline-item
                 :runnable="item.pipeline"
                 :is-current="currentHistory?.id === item.id"
+                :edit-mode="editMode"
                 @view="historyView(item)"
                 @cancel="historyCancel()"
               ></pi-history-timeline-item>
@@ -165,9 +166,9 @@
 
 <script lang="ts">
 import { defineComponent, ref, provide, Ref, watch } from "vue";
-import PiTaskForm from "./task-form/index.vue";
-import PiTriggerForm from "./trigger-form/index.vue";
-import PiTaskView from "./task-view/index.vue";
+import PiTaskForm from "./component/task-form/index.vue";
+import PiTriggerForm from "./component/trigger-form/index.vue";
+import PiTaskView from "./component/task-view/index.vue";
 import PiStatusShow from "./component/status-show.vue";
 import _ from "lodash-es";
 import { message, Modal, notification } from "ant-design-vue";
@@ -205,13 +206,58 @@ export default defineComponent({
 
     const currentHistory: Ref<any> = ref({});
 
-    const changeCurrentHistory = async (history: any) => {
+    const loadCurrentHistoryDetail = async () => {
+      const detail: RunHistory = await props.options?.getHistoryDetail({ historyId: currentHistory.value.id });
+      currentHistory.value.logs = detail.logs;
+      _.merge(currentHistory.value.pipeline, detail.pipeline);
+    };
+    const changeCurrentHistory = async (history?: RunHistory) => {
+      if (history == null) {
+        //取消历史记录查看模式
+        currentHistory.value = null;
+        pipeline.value = currentPipeline.value;
+        return;
+      }
       currentHistory.value = history;
       pipeline.value = history.pipeline;
-      const log = await props.options.getHistoryLog({ historyId: history.id });
-      currentHistory.value.logs = log.logs;
+      await loadCurrentHistoryDetail();
       console.log("currentHistory:", currentHistory);
     };
+
+    async function loadHistoryList() {
+      const historyList = await props.options.getHistoryList({ pipelineId: pipeline.value.id });
+      histories.value = historyList;
+
+      if (historyList.length > 0 && !props.editMode) {
+        if (historyList[0].pipeline?.version === pipeline.value.version) {
+          await changeCurrentHistory(historyList[0]);
+        }
+      }
+    }
+    const intervalLoadHistoryRef = ref();
+    intervalLoadHistoryRef.value = setInterval(async () => {
+      if (currentHistory.value == null) {
+        console.log("load history list");
+        await loadHistoryList();
+      } else if (currentHistory.value.pipeline?.status?.status === "start") {
+        console.log("load history logs");
+        await loadCurrentHistoryDetail();
+      }
+    }, 3000);
+    watch(
+      () => {
+        return props.editMode;
+      },
+      (editMode) => {
+        if (editMode) {
+          changeCurrentHistory();
+        } else if (histories.value.length > 0) {
+          if (histories.value[0].pipeline.version === pipeline.value.version) {
+            changeCurrentHistory(histories.value[0]);
+          }
+        }
+      }
+    );
     watch(
       () => {
         return props.pipelineId;
@@ -223,14 +269,7 @@ export default defineComponent({
         const detail: PipelineDetail = await props.options.getPipelineDetail({ pipelineId: value });
         currentPipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, detail.pipeline);
         pipeline.value = currentPipeline.value;
-        const historyList = await props.options.getHistoryList({ pipelineId: pipeline.value.id });
-        histories.value = historyList;
-
-        if (historyList.length > 0) {
-          if (historyList[0].pipeline.version === pipeline.value.version) {
-            await changeCurrentHistory(historyList[0]);
-          }
-        }
+        loadHistoryList();
       },
       {
         immediate: true
@@ -374,12 +413,18 @@ export default defineComponent({
         }
         if (!props.options.doTrigger) {
           message.warn("暂不支持运行");
+          return;
+        }
+        if (pipeline.value.stages == null || pipeline.value.stages.length === 0) {
+          message.warn("请先添加阶段和任务");
+          return;
         }
         Modal.confirm({
           title: "确认",
           content: `确定要手动触发运行吗？`,
           async onOk() {
             //@ts-ignore
+            await changeCurrentHistory(null);
             await props.options.doTrigger({ pipelineId: pipeline.value.id });
             notification.success({ message: "管道已经开始运行" });
           }
@@ -393,8 +438,8 @@ export default defineComponent({
         try {
           if (props.options.doSave) {
             pipeline.value.version++;
-            await props.options.doSave(pipeline.value);
             currentPipeline.value = pipeline.value;
+            await props.options.doSave(pipeline.value);
           }
           toggleEditMode(false);
         } finally {
@@ -427,8 +472,7 @@ export default defineComponent({
       };
 
       const historyCancel = () => {
-        pipeline.value = currentPipeline.value;
-        currentHistory.value = null;
+        changeCurrentHistory();
         console.log("currentPipeline", pipeline);
       };
 
@@ -473,7 +517,7 @@ export default defineComponent({
       height: 100%;
     }
     .layout-right {
-      width: 30%;
+      width: 350px;
       height: 100%;
     }
   }
@@ -597,6 +641,11 @@ export default defineComponent({
         }
       }
     }
+  }
+
+  .logs-block {
+    height: 100%;
+    overflow-y: auto;
   }
 }
 </style>

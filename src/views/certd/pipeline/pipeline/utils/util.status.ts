@@ -15,7 +15,7 @@ const StatusEnum = {
     value: "skip",
     label: "跳过",
     color: "blue",
-    icon: "ant-design:minus-circle-twotone"
+    icon: "fluent:arrow-step-over-20-filled"
   },
   start: {
     value: "start",
@@ -37,5 +37,13 @@ export const statusUtil = {
   },
   get(status = "none") {
     return StatusEnum[status];
+  },
+
+  getOptions() {
+    const options: any[] = [];
+    for (const key of Object.keys(StatusEnum)) {
+      options.push(StatusEnum[key]);
+    }
+    return options;
   }
 };

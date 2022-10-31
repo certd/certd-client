@@ -11,13 +11,7 @@ import * as pluginApi from "./api.plugin";
 import * as historyApi from "./api.history";
 import * as api from "./api";
 import { useRoute } from "vue-router";
-import {
-  PipelineDefine,
-  PipelineDetail,
-  PipelineOptions,
-  RunHistory,
-  RunHistoryLog
-} from "/@/views/certd/pipeline/pipeline/type";
+import { Pipeline, PipelineDetail, PipelineOptions, RunHistory } from "/@/views/certd/pipeline/pipeline/type";
 import { PluginDefine } from "@certd/pipeline/src";
 
 export default defineComponent({
@@ -44,8 +38,9 @@ export default defineComponent({
       return list;
     };
 
-    const getHistoryLog = async ({ historyId }) => {
-      return await historyApi.GetLogs(historyId);
+    const getHistoryDetail = async ({ historyId }): Promise<RunHistory> => {
+      const detail = await historyApi.GetDetail({ id: historyId });
+      return detail;
     };
 
     const getPlugins = async () => {
@@ -53,7 +48,7 @@ export default defineComponent({
       return plugins as PluginDefine[];
     };
 
-    async function doSave(pipelineConfig: PipelineDefine) {
+    async function doSave(pipelineConfig: Pipeline) {
       await api.Save({
         id: pipelineConfig.id,
         content: JSON.stringify(pipelineConfig)
@@ -68,7 +63,7 @@ export default defineComponent({
       doSave,
       getPlugins,
       getHistoryList,
-      getHistoryLog,
+      getHistoryDetail,
       getPipelineDetail
     });
 

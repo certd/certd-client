@@ -1,4 +1,5 @@
 import { request } from "/src/api/service";
+import { RunHistory } from "/@/views/certd/pipeline/pipeline/type";
 
 const apiPrefix = "/pi/history";
 
@@ -17,17 +18,18 @@ export async function GetList(query) {
   return list;
 }
 
-export async function GetLogs(historyId: any) {
-  const log = await request({
-    url: apiPrefix + "/logs",
+export async function GetDetail(query): Promise<RunHistory> {
+  const detail = await request({
+    url: apiPrefix + "/detail",
     method: "post",
-    params: { id: historyId }
+    params: query
   });
 
-  if (log) {
-    log.logs = JSON.parse(log?.logs || "{}");
-    return log;
-  } else {
-    return { logs: {} };
-  }
+  const pipeline = JSON.parse(detail.history?.pipeline || "{}");
+  const logs = JSON.parse(detail.log?.logs || "{}");
+  return {
+    id: detail.history.id,
+    pipeline,
+    logs
+  } as RunHistory;
 }

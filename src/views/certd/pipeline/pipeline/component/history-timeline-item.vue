@@ -8,13 +8,13 @@
       <a-tag class="ml-10" :color="status.color">{{ status.label }}</a-tag>
 
       <a-tag v-if="isCurrent" class="pointer" color="green" :closable="true" @close="cancel">当前</a-tag>
-      <a-tag v-else class="pointer" color="blue" @click="view">查看</a-tag>
+      <a-tag v-else-if="!editMode" class="pointer" color="blue" @click="view">查看</a-tag>
     </p>
   </a-timeline-item>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, provide, Ref, watch } from "vue";
+import { defineComponent, ref, provide, Ref, watch, computed } from "vue";
 import { statusUtil } from "/@/views/certd/pipeline/pipeline/utils/util.status";
 export default defineComponent({
   name: "PiHistoryTimelineItem",
@@ -31,12 +31,18 @@ export default defineComponent({
     },
     isCurrent: {
       type: Boolean
+    },
+    editMode: {
+      type: Boolean,
+      default: false
     }
   },
   emits: ["view", "cancel"],
   setup(props, ctx) {
-    const status: Ref = ref({});
-    status.value = statusUtil.get(props.runnable.status?.result);
+    const status = computed(() => {
+      return statusUtil.get(props.runnable.status?.result);
+    });
+
     function view() {
       ctx.emit("view");
     }

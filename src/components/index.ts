@@ -1,7 +1,7 @@
 import PiContainer from "./container.vue";
 import PiAccessSelector from "./access-selector/index.vue";
 import PiDnsProviderSelector from "./dns-provider-selector/index.vue";
-import PiOutputSelector from "../views/certd/pipeline/pipeline/output-selector/index.vue";
+import PiOutputSelector from "../views/certd/pipeline/pipeline/component/output-selector/index.vue";
 import PiEditable from "./editable.vue";
 import { CheckCircleOutlined, InfoCircleOutlined, UndoOutlined } from "@ant-design/icons-vue";
 export default {

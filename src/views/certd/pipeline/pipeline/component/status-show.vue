@@ -1,7 +1,7 @@
 <template>
-  <span class="pi-status-show">
+  <span v-if="statusRef" class="pi-status-show">
     <template v-if="type === 'icon'">
-      <fs-icon v-bind="statusRef" />
+      <fs-icon class="status-icon" v-bind="statusRef" :style="{ color: statusRef.color }" />
     </template>
     <template v-if="type === 'tag'">
       <a-tag :color="statusRef.color">{{ statusRef.label }}</a-tag>
@@ -10,7 +10,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, provide, Ref, watch } from "vue";
+import { defineComponent, ref, provide, Ref, watch, computed } from "vue";
 import { statusUtil } from "/@/views/certd/pipeline/pipeline/utils/util.status";
 export default defineComponent({
   name: "PiStatusShow",
@@ -25,8 +25,10 @@ export default defineComponent({
     }
   },
   setup(props, ctx) {
-    const statusRef: Ref = ref({});
-    statusRef.value = statusUtil.get(props.status);
+    const statusRef = computed(() => {
+      return statusUtil.get(props.status);
+    });
+
     return {
       statusRef
     };
@@ -35,5 +37,10 @@ export default defineComponent({
 </script>
 <style lang="less">
 .pi-status-show {
+  .status-icon {
+    font-size: 16px;
+    margin-left: 3px;
+    margin-right: 3px;
+  }
 }
 </style>
