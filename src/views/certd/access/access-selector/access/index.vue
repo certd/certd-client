@@ -5,10 +5,10 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, watch } from "vue";
-import { useCrud } from "@fast-crud/fast-crud";
+import { defineComponent, onMounted, ref, watch } from "vue";
+import { useCrud, useExpose } from "@fast-crud/fast-crud";
 import createCrudOptions from "./crud";
-import { useExpose } from "@fast-crud/fast-crud";
+
 export default defineComponent({
   name: "CertAccessModal",
   props: {

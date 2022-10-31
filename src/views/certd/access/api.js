@@ -39,3 +39,11 @@ export function GetObj(id) {
     params: { id }
   });
 }
+
+export function GetProviderDefine(type) {
+  return request({
+    url: apiPrefix + "/define",
+    method: "post",
+    params: { type }
+  });
+}

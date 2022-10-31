@@ -15,7 +15,7 @@
 
 <script>
 import { defineComponent, reactive, ref, watch } from "vue";
-import * as api from "./access/api";
+import * as api from "../api";
 import CertAccessModal from "./access/index.vue";
 
 export default defineComponent({

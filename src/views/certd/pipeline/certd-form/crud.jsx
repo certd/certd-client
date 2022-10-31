@@ -12,7 +12,7 @@ export default function () {
       columns: {
         domains: {
           title: "域名",
-          type: ["dict-select", "colspan"],
+          type: ["dict-select"],
           search: {
             show: true,
             component: {
@@ -20,6 +20,12 @@ export default function () {
             }
           },
           form: {
+            col: {
+              span: 24
+            },
+            wrapperCol: {
+              span: null
+            },
             component: {
               mode: "tags",
               open: false

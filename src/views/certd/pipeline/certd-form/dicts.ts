@@ -4,6 +4,6 @@ export const Dicts = {
   certIssuerDict: dict({ data: [{ value: "letencrypt", label: "LetEncrypt" }] }),
   challengeTypeDict: dict({ data: [{ value: "dns", label: "DNS校验" }] }),
   dnsProviderTypeDict: dict({
-    url: "pi/access/dnsProviderTypeDict"
+    url: "pi/dnsProvider/dnsProviderTypeDict"
   })
 };

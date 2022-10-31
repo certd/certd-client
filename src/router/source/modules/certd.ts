@@ -10,7 +10,7 @@ export const certdResources = [
     },
     children: [
       {
-        title: "自动化流水线",
+        title: "证书自动化流水线",
         name: "pipeline",
         path: "/certd/pipeline",
         component: "/certd/pipeline/index.vue",
@@ -28,7 +28,7 @@ export const certdResources = [
         }
       },
       {
-        title: "授权",
+        title: "授权管理",
         name: "access",
         path: "/certd/access",
         component: "/certd/access/index.vue",

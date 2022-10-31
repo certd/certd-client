@@ -1,10 +1,10 @@
 import { request, requestForMock } from "/src/api/service";
 import "/src/mock";
+import UiAntdv from "@fast-crud/ui-antdv";
 import { FastCrud, useTypes } from "@fast-crud/fast-crud";
 import "@fast-crud/fast-crud/dist/style.css";
 import { FsExtendsUploader, FsExtendsEditor, FsExtendsJson } from "@fast-crud/fast-extends";
 import "@fast-crud/fast-extends/dist/style.css";
-import UiAntdv from "@fast-crud/ui-antdv";
 
 import { useCrudPermission } from "../permission";
 
@@ -68,7 +68,14 @@ function install(app, options: any = {}) {
           }
         },
         form: {
-          display: "flex"
+          display: "flex",
+          labelCol: {
+            style: { width: "140px" },
+            span: null
+          },
+          wrapperCol: {
+            span: null
+          }
           // labelCol: { style: { width: "150px" } }
         }
       };

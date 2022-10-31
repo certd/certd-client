@@ -1,7 +1,6 @@
-import * as api from "./api";
-import { dict } from "@fast-crud/fast-crud";
+import * as api from "/@/views/certd/access/api";
 import { ref } from "vue";
-import _ from "lodash-es";
+import { getCommonColumnDefine } from "/@/views/certd/access/common";
 
 export default function ({ expose, props, ctx }) {
   const { crudBinding } = expose;
@@ -26,12 +25,7 @@ export default function ({ expose, props, ctx }) {
     lastResRef.value = res;
     return res;
   };
-  let DNSProviderTypeDictRef = dict({
-    url: "/pi/access/dnsProviderTypeDict"
-  });
-  let AccessTypeDictRef = dict({
-    url: "/pi/access/accessTypeDict"
-  });
+
   const selectedRowKey = ref([props.modelValue]);
   // watch(
   //   () => {
@@ -50,27 +44,8 @@ export default function ({ expose, props, ctx }) {
   };
 
   const typeRef = ref("aliyun");
-
-  const defaultPluginConfig = {
-    component: {
-      name: "a-input",
-      vModel: "value"
-    }
-  };
-  function buildDefineFields(define, mode) {
-    _.remove(crudBinding.value[mode + "Form"].columns, function (value, key) {
-      return !!value._isUnstable;
-    });
-    _.forEach(define.input, (value, key) => {
-      let field = {
-        key,
-        ...value,
-        _isUnstable: true
-      };
-      crudBinding.value[mode + "Form"].columns[key] = _.merge({ title: key }, defaultPluginConfig, field);
-      console.log("form", crudBinding.value[mode + "Form"]);
-    });
-  }
+  const commonColumnsDefine = getCommonColumnDefine(crudBinding, typeRef);
+  commonColumnsDefine.type.form.component.disabled = true;
   return {
     typeRef,
     crudOptions: {
@@ -130,50 +105,7 @@ export default function ({ expose, props, ctx }) {
             rules: [{ required: true, message: "请填写名称" }]
           }
         },
-        type: {
-          title: "类型",
-          type: "dict-select",
-          dict: AccessTypeDictRef,
-          search: {
-            show: false
-          },
-          form: {
-            rules: [{ required: true, message: "请选择类型" }],
-            component: {
-              disabled: true
-            },
-            valueChange: {
-              immediate: true,
-              async handle({ value, mode }) {
-                const define = await api.GetProviderDefine(value);
-                console.log("define", define);
-                buildDefineFields(define, mode);
-              }
-            }
-          },
-          addForm: {
-            value: typeRef
-          }
-        },
-        setting: {
-          column: { show: false },
-          form: {
-            show: false,
-            valueBuilder({ value, form }) {
-              if (!value) {
-                return;
-              }
-              const setting = JSON.parse(value);
-              for (let key in setting) {
-                form[key] = setting[key];
-              }
-            },
-            valueResolve({ form }) {
-              const setting = _.omit(form, "id", "name", "type", "setting");
-              form.setting = JSON.stringify(setting);
-            }
-          }
-        }
+        ...commonColumnsDefine
       }
     }
   };
