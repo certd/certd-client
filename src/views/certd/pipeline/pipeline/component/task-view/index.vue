@@ -109,6 +109,8 @@ export default {
     color: #fafafa;
     min-height: 300px;
     max-height: 580px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
   }
 }
 </style>

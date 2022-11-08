@@ -225,28 +225,43 @@ export default defineComponent({
       console.log("currentHistory:", currentHistory);
     };
 
-    async function loadHistoryList(toggleCurrentHistory = false) {
+    async function loadHistoryList(reload = false) {
       if (props.editMode) {
         return;
       }
+      if (reload) {
+        histories.value = [];
+      }
       console.log("load history list");
       const historyList = await props.options.getHistoryList({ pipelineId: pipeline.value.id });
+      if (!historyList) {
+        return;
+      }
+      if (histories.value.length > 0 && histories.value[0].id === historyList[0].id) {
+        return;
+      }
       histories.value = historyList;
 
-      if (toggleCurrentHistory && historyList.length > 0) {
+      if (historyList.length > 0) {
         if (historyList[0].pipeline?.version === pipeline.value.version) {
           await changeCurrentHistory(historyList[0]);
         }
       }
+      return true;
     }
     const intervalLoadHistoryRef = ref();
-    intervalLoadHistoryRef.value = setInterval(async () => {
-      if (currentHistory.value == null) {
-        await loadHistoryList();
-      } else if (currentHistory.value.pipeline?.status?.status === "start") {
-        await loadCurrentHistoryDetail();
-      }
-    }, 3000);
+    function watchNewHistoryList() {
+      intervalLoadHistoryRef.value = setInterval(async () => {
+        if (currentHistory.value == null) {
+          await loadHistoryList();
+        } else if (currentHistory.value.pipeline?.status?.status === "start") {
+          await loadCurrentHistoryDetail();
+        } else {
+          clearInterval(intervalLoadHistoryRef.value);
+        }
+      }, 3000);
+    }
+
     watch(
       () => {
         return props.editMode;
@@ -427,7 +442,8 @@ export default defineComponent({
           content: `确定要手动触发运行吗？`,
           async onOk() {
             //@ts-ignore
-            await changeCurrentHistory(null, true);
+            await changeCurrentHistory(null);
+            watchNewHistoryList();
             await props.options.doTrigger({ pipelineId: pipeline.value.id });
             notification.success({ message: "管道已经开始运行" });
           }
