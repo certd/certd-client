@@ -174,7 +174,7 @@ import _ from "lodash-es";
 import { message, Modal, notification } from "ant-design-vue";
 import { pluginManager } from "/@/views/certd/pipeline/pipeline/plugin";
 import { nanoid } from "nanoid";
-import { PipelineDetail, PipelineOptions, RunHistory } from "/@/views/certd/pipeline/pipeline/type";
+import { PipelineDetail, PipelineOptions, RunHistory, Runnable } from "/@/views/certd/pipeline/pipeline/type";
 import { statusUtil } from "./utils/util.status";
 import PiHistoryTimelineItem from "/@/views/certd/pipeline/pipeline/component/history-timeline-item.vue";
 export default defineComponent({
@@ -207,12 +207,13 @@ export default defineComponent({
     const currentHistory: Ref<any> = ref({});
 
     const loadCurrentHistoryDetail = async () => {
+      console.log("load history logs");
       const detail: RunHistory = await props.options?.getHistoryDetail({ historyId: currentHistory.value.id });
       currentHistory.value.logs = detail.logs;
       _.merge(currentHistory.value.pipeline, detail.pipeline);
     };
     const changeCurrentHistory = async (history?: RunHistory) => {
-      if (history == null) {
+      if (!history) {
         //取消历史记录查看模式
         currentHistory.value = null;
         pipeline.value = currentPipeline.value;
@@ -224,11 +225,15 @@ export default defineComponent({
       console.log("currentHistory:", currentHistory);
     };
 
-    async function loadHistoryList() {
+    async function loadHistoryList(toggleCurrentHistory = false) {
+      if (props.editMode) {
+        return;
+      }
+      console.log("load history list");
       const historyList = await props.options.getHistoryList({ pipelineId: pipeline.value.id });
       histories.value = historyList;
 
-      if (historyList.length > 0 && !props.editMode) {
+      if (toggleCurrentHistory && historyList.length > 0) {
         if (historyList[0].pipeline?.version === pipeline.value.version) {
           await changeCurrentHistory(historyList[0]);
         }
@@ -237,10 +242,8 @@ export default defineComponent({
     const intervalLoadHistoryRef = ref();
     intervalLoadHistoryRef.value = setInterval(async () => {
       if (currentHistory.value == null) {
-        console.log("load history list");
         await loadHistoryList();
       } else if (currentHistory.value.pipeline?.status?.status === "start") {
-        console.log("load history logs");
         await loadCurrentHistoryDetail();
       }
     }, 3000);
@@ -269,7 +272,7 @@ export default defineComponent({
         const detail: PipelineDetail = await props.options.getPipelineDetail({ pipelineId: value });
         currentPipeline.value = _.merge({ title: "新管道流程", stages: [], triggers: [] }, detail.pipeline);
         pipeline.value = currentPipeline.value;
-        loadHistoryList();
+        await loadHistoryList(true);
       },
       {
         immediate: true
@@ -332,7 +335,7 @@ export default defineComponent({
             if (type === "delete") {
               stage.tasks.splice(taskIndex, 1);
               if (stage.tasks.length === 0) {
-                _.remove(pipeline.value.stages, (item) => {
+                _.remove(pipeline.value.stages, (item: Runnable) => {
                   return item.id === stage.id;
                 });
               }
@@ -424,7 +427,7 @@ export default defineComponent({
           content: `确定要手动触发运行吗？`,
           async onOk() {
             //@ts-ignore
-            await changeCurrentHistory(null);
+            await changeCurrentHistory(null, true);
             await props.options.doTrigger({ pipelineId: pipeline.value.id });
             notification.success({ message: "管道已经开始运行" });
           }

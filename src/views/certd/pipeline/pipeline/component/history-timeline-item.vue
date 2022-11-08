@@ -1,5 +1,5 @@
 <template>
-  <a-timeline-item v-if="status" class="pi-history-timeline-item" :color="status.color">
+  <a-timeline-item v-if="status && runnable" class="pi-history-timeline-item" :color="status.color">
     <template #dot>
       <fs-icon v-bind="status" />
     </template>
@@ -40,7 +40,7 @@ export default defineComponent({
   emits: ["view", "cancel"],
   setup(props, ctx) {
     const status = computed(() => {
-      return statusUtil.get(props.runnable.status?.result);
+      return statusUtil.get(props.runnable?.status?.result);
     });
 
     function view() {

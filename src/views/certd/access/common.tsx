@@ -51,7 +51,6 @@ export function getCommonColumnDefine(crudBinding, typeRef) {
             if (value == null) {
               return;
             }
-            form.access = {};
             const define = await api.GetProviderDefine(value);
             console.log("define", define);
             buildDefineFields(define, mode);
