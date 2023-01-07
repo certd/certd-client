@@ -31,7 +31,7 @@ export class PluginManager {
     const options: any[] = [];
     for (const step of steps) {
       const stepDefine = this.get(step.type);
-      for (const key in stepDefine.output) {
+      for (const key in stepDefine?.output) {
         options.push({
           value: `step.${step.id}.${key}`,
           label: `${stepDefine.output[key].title}【from：${step.title}】`,
