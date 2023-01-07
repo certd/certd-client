@@ -49,6 +49,7 @@ export const usePageStore = defineStore({
   }),
   getters: {
     getOpened() {
+      // @ts-ignore
       return this.opened;
     },
     getCurrent(): string {
@@ -356,6 +357,7 @@ export const usePageStore = defineStore({
      */
     keepAliveRefresh() {
       this.keepAlive = this.opened.filter((item) => isKeepAlive(item)).map((e) => e.name);
+      console.log("keep alive:", this.keepAlive);
     },
     /**
      * @description 删除一个页面的缓存设置

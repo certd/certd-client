@@ -11,25 +11,31 @@ import { provide, ref, nextTick } from "vue";
 import { usePageStore } from "/src/store/modules/page";
 import { useResourceStore } from "/src/store/modules/resource";
 import { useSettingStore } from "/@/store/modules/settings";
+import  'dayjs/locale/zh-cn';
+import  'dayjs/locale/en';
+import dayjs from 'dayjs'
 export default {
   name: "App",
   setup() {
     //刷新页面方法
     const routerEnabled = ref(true);
-    const locale = ref(zhCN)
+    const locale = ref(zhCN);
     async function reload() {
       routerEnabled.value = false;
       await nextTick();
       routerEnabled.value = true;
     }
-    function localeChanged(value){
-      console.log('locale changed:',value)
-      if(value === 'zh-cn'){
-        locale.value = zhCN
-      }else if(value === 'en'){
-        locale.value = enUS
+    function localeChanged(value) {
+      console.log("locale changed:", value);
+      if (value === "zh-cn") {
+        locale.value = zhCN;
+        dayjs.locale('zh-cn');
+      } else if (value === "en") {
+        locale.value = enUS;
+        dayjs.locale('en');
       }
     }
+    localeChanged('zh-cn')
     provide("fn:router.reload", reload);
     provide("fn:locale.changed", localeChanged);
 
@@ -45,6 +51,6 @@ export default {
       routerEnabled,
       locale
     };
-  },
+  }
 };
 </script>

@@ -1,9 +1,10 @@
-import { request } from "/src/api/service";
-const apiPrefix = "/pi/access";
+import { requestForMock } from "/src/api/service";
+const request = requestForMock;
+const apiPrefix = "/mock/AdvancedBigData";
 export function GetList(query) {
   return request({
     url: apiPrefix + "/page",
-    method: "post",
+    method: "get",
     data: query
   });
 }
@@ -35,15 +36,7 @@ export function DelObj(id) {
 export function GetObj(id) {
   return request({
     url: apiPrefix + "/info",
-    method: "post",
+    method: "get",
     params: { id }
-  });
-}
-
-export function GetProviderDefine(type) {
-  return request({
-    url: apiPrefix + "/define",
-    method: "post",
-    params: { type }
   });
 }

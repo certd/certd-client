@@ -1,15 +1,17 @@
 import { request, requestForMock } from "/src/api/service";
 import "/src/mock";
 import UiAntdv from "@fast-crud/ui-antdv";
-import { FastCrud, useTypes } from "@fast-crud/fast-crud";
+import { FastCrud, UseCrudProps, useTypes, setLogger } from "@fast-crud/fast-crud";
 import "@fast-crud/fast-crud/dist/style.css";
-import { FsExtendsUploader, FsExtendsEditor, FsExtendsJson } from "@fast-crud/fast-extends";
+import { FsExtendsUploader, FsExtendsEditor, FsExtendsJson, FsExtendsCopyable, FsExtendsTime } from "@fast-crud/fast-extends";
 import "@fast-crud/fast-extends/dist/style.css";
 
 import { useCrudPermission } from "../permission";
 
 function install(app, options: any = {}) {
   app.use(UiAntdv);
+  //设置日志级别
+  setLogger({ level: "debug" });
   app.use(FastCrud, {
     i18n: options.i18n,
     async dictRequest({ url }) {
@@ -23,11 +25,15 @@ function install(app, options: any = {}) {
      * useCrud时会被执行
      * @param context，useCrud的参数
      */
-    commonOptions(context: any = {}) {
+    commonOptions(context: UseCrudProps) {
+      const crudBinding = context.expose?.crudBinding;
       const opts = {
         table: {
           size: "small",
-          pagination: false
+          pagination: false,
+          onResizeColumn: (w, col) => {
+            crudBinding.value.table.columnsMap[col.key].width = w;
+          }
         },
         rowHandle: {
           buttons: {
@@ -70,30 +76,25 @@ function install(app, options: any = {}) {
         form: {
           display: "flex",
           labelCol: {
-            style: { width: "140px" },
-            span: null
+            //固定label宽度
+            span: null,
+            style: {
+              width: "120px"
+            }
           },
           wrapperCol: {
             span: null
           }
-          // labelCol: { style: { width: "150px" } }
         }
       };
 
       // 从 useCrud({permission}) 里获取permission参数，去设置各个按钮的权限
-      const crudPermission = useCrudPermission(context);
+      const crudPermission = useCrudPermission({ permission: context.permission });
       return crudPermission.merge(opts);
     }
   });
 
   // fast-extends里面的扩展组件均为异步组件，只有在使用时才会被加载，并不会影响首页加载速度
-  //安装editor
-  app.use(FsExtendsEditor, {
-    //编辑器的公共配置
-    wangEditor: {},
-    quillEditor: {}
-  });
-  app.use(FsExtendsJson);
   //安装uploader 公共参数
   app.use(FsExtendsUploader, {
     defaultType: "cos",
@@ -170,7 +171,7 @@ function install(app, options: any = {}) {
       action: "http://www.docmirror.cn:7070/api/upload/form/upload",
       name: "file",
       withCredentials: false,
-      uploadRequest: async ({ action, file }) => {
+      uploadRequest: async ({ action, file, onProgress }) => {
         // @ts-ignore
         const data = new FormData();
         data.append("file", file);
@@ -180,15 +181,31 @@ function install(app, options: any = {}) {
           headers: {
             "Content-Type": "multipart/form-data"
           },
-          data
+          timeout: 60000,
+          data,
+          onUploadProgress: (p) => {
+            onProgress({ percent: Math.round((p.loaded / p.total) * 100) });
+          }
         });
       },
       successHandle(ret) {
         // 上传完成后的结果处理， 此处应返回格式为{url:xxx}
-        return { url: "http://www.docmirror.cn:7070" + ret };
+        return {
+          url: "http://www.docmirror.cn:7070" + ret,
+          key: ret.replace("/api/upload/form/download?key=", "")
+        };
       }
     }
   });
+
+  //安装editor
+  app.use(FsExtendsEditor, {
+    //编辑器的公共配置
+    wangEditor: {}
+  });
+  app.use(FsExtendsJson);
+  app.use(FsExtendsTime);
+  app.use(FsExtendsCopyable);
 
   const { addTypes } = useTypes();
   addTypes({

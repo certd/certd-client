@@ -69,6 +69,9 @@ export default ({ command, mode }) => {
       ],
       dedupe: ["vue"]
     },
+    optimizeDeps: {
+      include: ["ant-design-vue"]
+    },
     build: {
       rollupOptions: {
         plugins: [visualizer()]
@@ -84,6 +87,7 @@ export default ({ command, mode }) => {
       }
     },
     server: {
+      port: 3002,
       fs: devServerFs,
       proxy: {
         // with options
