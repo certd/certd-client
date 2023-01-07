@@ -62,12 +62,7 @@
                 </div>
               </div>
 
-              <div
-                v-for="(stage, index) of pipeline.stages"
-                :key="stage.id"
-                class="stage"
-                :class="{ 'last-stage': !editMode && index === pipeline.stages.length - 1 }"
-              >
+              <div v-for="(stage, index) of pipeline.stages" :key="stage.id" class="stage" :class="{ 'last-stage': !editMode && index === pipeline.stages.length - 1 }">
                 <div class="title">
                   <pi-editable v-model="stage.title" :disabled="!editMode"></pi-editable>
                 </div>
@@ -82,13 +77,7 @@
                   >
                     <div class="line">
                       <div class="flow-line"></div>
-                      <fs-icon
-                        v-if="editMode"
-                        class="add-stage-btn"
-                        title="添加新阶段"
-                        icon="ion:add-circle"
-                        @click="stageAdd(index)"
-                      ></fs-icon>
+                      <fs-icon v-if="editMode" class="add-stage-btn" title="添加新阶段" icon="ion:add-circle" @click="stageAdd(index)"></fs-icon>
                     </div>
                     <div class="task">
                       <a-button shape="round" @click="taskEdit(stage, index, task, taskIndex)">
@@ -119,12 +108,7 @@
                   <div class="task-container first-task">
                     <div class="line">
                       <div class="flow-line"></div>
-                      <fs-icon
-                        class="add-stage-btn"
-                        title="添加新阶段"
-                        icon="ion:add-circle"
-                        @click="stageAdd()"
-                      ></fs-icon>
+                      <fs-icon class="add-stage-btn" title="添加新阶段" icon="ion:add-circle" @click="stageAdd()"></fs-icon>
                     </div>
                     <div class="task">
                       <a-button shape="round" type="dashed" @click="stageAdd()">
@@ -144,13 +128,7 @@
         <a-page-header title="运行历史" sub-title="点任务可查看日志" class="logs-block">
           <a-timeline class="mt-10">
             <template v-for="item of histories" :key="item.id">
-              <pi-history-timeline-item
-                :runnable="item.pipeline"
-                :is-current="currentHistory?.id === item.id"
-                :edit-mode="editMode"
-                @view="historyView(item)"
-                @cancel="historyCancel()"
-              ></pi-history-timeline-item>
+              <pi-history-timeline-item :runnable="item.pipeline" :is-current="currentHistory?.id === item.id" :edit-mode="editMode" @view="historyView(item)" @cancel="historyCancel()"></pi-history-timeline-item>
             </template>
             <a-empty v-if="histories.length === 0"> </a-empty>
           </a-timeline>
@@ -524,6 +502,10 @@ export default defineComponent({
         width: 300px;
       }
     }
+  }
+
+  .pi-status-show {
+    display: inline-flex;
   }
 
   .layout {

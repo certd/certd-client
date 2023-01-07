@@ -1,15 +1,7 @@
 import * as api from "./api";
-<<<<<<<< HEAD:src/views/crud/feature/remove/crud.tsx
-import { useI18n } from "vue-i18n";
-import { ref } from "vue";
-import { getCommonColumnDefine } from "/@/views/certd/access/common";
-
-========
 import { dict } from "@fast-crud/fast-crud";
 import { ref } from "vue";
->>>>>>>> upstream/main:src/views/crud/basis/columns-set/crud.jsx
 export default function ({ expose }) {
-  const { t } = useI18n();
   const pageRequest = async (query) => {
     return await api.GetList(query);
   };
@@ -24,9 +16,6 @@ export default function ({ expose }) {
   const addRequest = async ({ form }) => {
     return await api.AddObj(form);
   };
-  const typeRef = ref();
-  const { crudBinding } = expose;
-  const commonColumnsDefine = getCommonColumnDefine(crudBinding, typeRef);
   return {
     crudOptions: {
       request: {
@@ -35,15 +24,9 @@ export default function ({ expose }) {
         editRequest,
         delRequest
       },
-<<<<<<<< HEAD:src/views/crud/feature/remove/crud.tsx
-      form: {
-        labelCol: {
-          span: 6
-========
       toolbar: {
         columnsFilter: {
           mode: "default"
->>>>>>>> upstream/main:src/views/crud/basis/columns-set/crud.jsx
         }
       },
       columns: {
@@ -58,13 +41,6 @@ export default function ({ expose }) {
             show: false
           }
         },
-<<<<<<<< HEAD:src/views/crud/feature/remove/crud.tsx
-        name: {
-          title: "名称",
-          type: "text",
-          form: {
-            rules: [{ required: true, message: "必填项" }]
-========
         radio: {
           title: "状态",
           search: { show: true },
@@ -85,10 +61,8 @@ export default function ({ expose }) {
           type: "text",
           column: {
             columnSetShow: false
->>>>>>>> upstream/main:src/views/crud/basis/columns-set/crud.jsx
           }
-        },
-        ...commonColumnsDefine
+        }
       }
     }
   };
