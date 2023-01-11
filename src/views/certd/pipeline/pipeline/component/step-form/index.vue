@@ -1,11 +1,5 @@
 <template>
-  <a-drawer
-    v-model:visible="stepDrawerVisible"
-    placement="right"
-    :closable="true"
-    width="600px"
-    :after-visible-change="stepDrawerOnAfterVisibleChange"
-  >
+  <a-drawer v-model:visible="stepDrawerVisible" placement="right" :closable="true" width="600px" :after-visible-change="stepDrawerOnAfterVisibleChange">
     <template #title>
       编辑任务
       <a-button v-if="editMode" @click="stepDelete()">
@@ -40,13 +34,10 @@
         <a-button v-if="editMode" type="primary" @click="stepTypeSave"> 确定 </a-button>
       </pi-container>
       <pi-container v-else class="pi-step-form">
-        <a-form
-          ref="stepFormRef"
-          class="step-form"
-          :model="currentStep"
-          :label-col="labelCol"
-          :wrapper-col="wrapperCol"
-        >
+        <a-form ref="stepFormRef" class="step-form" :model="currentStep" :label-col="labelCol" :wrapper-col="wrapperCol">
+          <div class="mb-10">
+            <a-alert type="info" :message="currentPlugin.title" :description="currentPlugin.desc"> </a-alert>
+          </div>
           <fs-form-item
             v-model="currentStep.title"
             :item="{
@@ -74,7 +65,7 @@
                 vModel: 'value',
                 options: [
                   { value: 0, label: '正常运行' },
-                  { value: 1, label: '成功一次后跳过' }
+                  { value: 1, label: '成功后跳过' }
                 ]
               },
               rules: [{ required: true, message: '此项必填' }]
@@ -93,7 +84,7 @@
   </a-drawer>
 </template>
 
-<script>
+<script lang="jsx">
 import { message, Modal } from "ant-design-vue";
 import { inject, ref } from "vue";
 import _ from "lodash-es";
@@ -147,12 +138,7 @@ export default {
         changeCurrentPlugin(currentStep.value);
 
         //赋初始值
-        _.merge(
-          currentStep.value,
-          { input: {}, strategy: { runStrategy: 0 } },
-          currentPlugin.value.default,
-          currentStep.value
-        );
+        _.merge(currentStep.value, { input: {}, strategy: { runStrategy: 0 } }, currentPlugin.value.default, currentStep.value);
 
         for (const key in currentPlugin.value.input) {
           const input = currentPlugin.value.input[key];

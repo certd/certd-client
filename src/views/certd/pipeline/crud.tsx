@@ -53,7 +53,7 @@ export default function ({ expose, certdFormRef }) {
                       ...form
                     },
                     strategy: {
-                      runStrategy: 1
+                      runStrategy: 0 // 正常执行
                     },
                     type: "CertApply"
                   }
