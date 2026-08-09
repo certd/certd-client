@@ -2,6 +2,8 @@
 package app_provider
 
 import (
+	"errors"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -28,6 +30,15 @@ type Progress struct {
 	ProviderType         string
 	ScannedDirectories   int
 	RemainingDirectories int
+	Warning              string
+}
+
+func IsPermissionDenied(err error) bool {
+	return isPermissionDenied(err)
+}
+
+func isPermissionDenied(err error) bool {
+	return errors.Is(err, fs.ErrPermission)
 }
 
 type Provider interface {

@@ -1,13 +1,13 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
-	"github.com/certd/certd-client/internal/certd"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,39 +38,35 @@ const (
 )
 
 type Model struct {
-	repo               *storeRepo.TargetAppRepository
-	siteRepo           *storeRepo.AppSiteRepository
-	settingsRepo       *storeRepo.SettingsRepository
-	providers          *app_provider.Registry
-	logger             *log.Logger
-	menuCursor         int
-	screen             screen
-	rootInput          textinput.Model
-	discovered         []app_provider.App
-	selected           map[string]bool
-	selectCursor       int
-	apps               []storeRepo.TargetApp
-	appManageCursor    int
-	managedApp         storeRepo.TargetApp
-	managedSites       []storeRepo.AppSite
-	siteManageCursor   int
-	logs               []string
-	logScroll          int
-	scanning           bool
-	siteScanning       bool
-	scanProgress       app_provider.Progress
-	scanProgressCh     chan app_provider.Progress
-	status             string
-	certdInputs        [5]textinput.Model
-	certdFocus         int
-	syncing            bool
-	syncProgressCh     chan string
-	certdFactory       func(certd.Config) *certd.Client
-	syncAttempts       int
-	syncInterval       time.Duration
-	otherRetryInterval time.Duration
-	otherRetryAttempts int
-	width, height      int
+	repo             *storeRepo.TargetAppRepository
+	siteRepo         *storeRepo.AppSiteRepository
+	settingsRepo     *storeRepo.SettingsRepository
+	providers        *app_provider.Registry
+	logger           *log.Logger
+	menuCursor       int
+	screen           screen
+	rootInput        textinput.Model
+	discovered       []app_provider.App
+	selected         map[string]bool
+	selectCursor     int
+	apps             []storeRepo.TargetApp
+	appManageCursor  int
+	managedApp       storeRepo.TargetApp
+	managedSites     []storeRepo.AppSite
+	siteManageCursor int
+	logs             []string
+	logScroll        int
+	scanning         bool
+	siteScanning     bool
+	scanProgress     app_provider.Progress
+	scanProgressCh   chan app_provider.Progress
+	status           string
+	certdInputs      [5]textinput.Model
+	certdFocus       int
+	syncing          bool
+	syncProgressCh   chan string
+	syncCancel       context.CancelFunc
+	width, height    int
 }
 
 var menuItems = []string{"应用扫描", "扫描站点", "应用管理", "Certd接口设置", "同步证书"}
@@ -99,7 +95,6 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 	return Model{
 		repo: repo, siteRepo: siteRepo, settingsRepo: settingsRepo, providers: providers, logger: logger,
 		rootInput: input, certdInputs: certdInputs, selected: make(map[string]bool),
-		certdFactory: certd.NewClient, syncAttempts: defaultCertificatePollingAttempts, syncInterval: certificatePollingInterval, otherRetryInterval: otherCertificateRetryInterval, otherRetryAttempts: 3,
 	}
 }
 
@@ -196,10 +191,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case certificateSyncCompletedMsg:
 		m.syncing = false
+		m.syncCancel = nil
 		m.readSyncProgress()
 		m.syncProgressCh = nil
 		m.apps = m.loadApps()
-		m.status = fmt.Sprintf("证书同步完成：成功 %d，跳过 %d，失败 %d", msg.result.Succeeded, msg.result.Skipped, len(msg.result.Errors))
+		if msg.result.Canceled {
+			m.status = fmt.Sprintf("证书同步已取消：成功 %d，跳过 %d", msg.result.Succeeded, msg.result.Skipped)
+		} else {
+			m.status = fmt.Sprintf("证书同步完成：成功 %d，跳过 %d，失败 %d", msg.result.Succeeded, msg.result.Skipped, len(msg.result.Errors))
+		}
 		m.appendLog(m.status)
 		for _, item := range msg.result.Errors {
 			m.appendLog("证书同步失败：" + item)
@@ -211,6 +211,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.readSyncProgress()
 		return m, syncProgressTick()
 	case tea.KeyMsg:
+		if msg.String() == "esc" && m.syncing {
+			if m.syncCancel != nil {
+				m.syncCancel()
+			}
+			m.status = "正在取消证书同步"
+			m.appendLog(m.status)
+			return m, nil
+		}
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.screen != rootInputScreen) {
 			return m, tea.Quit
 		}
@@ -320,9 +328,11 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.syncing = true
 			m.syncProgressCh = make(chan string, 32)
+			syncContext, cancel := context.WithCancel(context.Background())
+			m.syncCancel = cancel
 			m.status = fmt.Sprintf("开始同步 %d 个应用的证书", len(activeApps))
 			m.appendLog(m.status)
-			return m, tea.Batch(m.syncCertificates(activeApps, m.syncProgressCh), syncProgressTick())
+			return m, tea.Batch(m.syncCertificatesService(syncContext, activeApps, m.syncProgressCh), syncProgressTick())
 		}
 	}
 	return m, nil
@@ -616,6 +626,9 @@ func (m *Model) readScanProgress() {
 		select {
 		case update := <-m.scanProgressCh:
 			m.scanProgress = update
+			if update.Warning != "" {
+				m.appendLog("扫描提示：" + update.Warning)
+			}
 		default:
 			return
 		}
@@ -718,7 +731,8 @@ func (m Model) View() string {
 		menu = append(menu, prefix+item)
 	}
 	header := renderTitle()
-	menuView := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(width - 4).Render(strings.Join(menu, "    "))
+	menuContent := strings.Join(menu, "    ") + "\n" + menuHelp(m.menuCursor)
+	menuView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 4).Render(menuContent)
 
 	var center string
 	switch m.screen {
@@ -860,6 +874,20 @@ func (m Model) View() string {
 		}
 	}
 	return header + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
+}
+
+func menuHelp(index int) string {
+	help := []string{
+		"扫描本机 Nginx、Apache 和 IIS 的应用安装目录",
+		"扫描已登记应用的站点与证书配置",
+		"查看、删除应用，或启用和禁用站点",
+		"设置 Certd 地址、授权信息、本机名称和等待时长",
+		"检查 Certd 证书并部署到已启用的 HTTPS 站点",
+	}
+	if index < 0 || index >= len(help) {
+		return ""
+	}
+	return help[index]
 }
 
 func executionLogHeader(width, current, total int) string {

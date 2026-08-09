@@ -1,0 +1,1 @@
+go build -o ./dist ./cmd/certd-client

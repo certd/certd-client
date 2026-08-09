@@ -16,6 +16,7 @@ import (
 type ApacheProvider struct {
 	lookupExecutable func(string) (string, error)
 	runCommand       func(string, ...string) ([]byte, error)
+	runCommandInDir  func(string, string, ...string) ([]byte, error)
 	statPath         func(string) (os.FileInfo, error)
 	serviceName      func(string, string) string
 }
@@ -55,6 +56,19 @@ func (provider ApacheProvider) Restart(app app_provider.App) error {
 			return exec.Command(name, args...).CombinedOutput()
 		}
 	}
+	runCommandInDir := provider.runCommandInDir
+	if runCommandInDir == nil && provider.runCommand != nil {
+		runCommandInDir = func(_ string, name string, args ...string) ([]byte, error) {
+			return provider.runCommand(name, args...)
+		}
+	}
+	if runCommandInDir == nil {
+		runCommandInDir = func(directory, name string, args ...string) ([]byte, error) {
+			command := exec.Command(name, args...)
+			command.Dir = directory
+			return command.CombinedOutput()
+		}
+	}
 	if name := serviceName(app.RootDir, executable); name != "" {
 		if output, err := runCommand("net.exe", "stop", name); err != nil {
 			if !isServiceNotRunning(output) {
@@ -71,7 +85,7 @@ func (provider ApacheProvider) Restart(app app_provider.App) error {
 		args = append(args, "-f", configPath)
 	}
 	args = append(args, "-k", "graceful")
-	output, err := runCommand(executable, args...)
+	output, err := runCommandInDir(app.RootDir, executable, args...)
 	if err != nil {
 		return formatRestartError("重启 Apache 失败", output, err)
 	}

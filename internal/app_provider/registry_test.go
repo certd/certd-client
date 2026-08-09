@@ -1,9 +1,18 @@
 package app_provider
 
-import "testing"
+import (
+	"io/fs"
+	"testing"
+)
 
 type testProvider struct {
 	typeName string
+}
+
+func TestIsPermissionDeniedRecognizesPermissionErrors(t *testing.T) {
+	if !isPermissionDenied(&fs.PathError{Err: fs.ErrPermission}) {
+		t.Fatal("expected permission error to be recognized")
+	}
 }
 
 func (p testProvider) Type() string { return p.typeName }

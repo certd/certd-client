@@ -118,6 +118,36 @@ func TestRestartRestartsApacheFromApplicationRoot(t *testing.T) {
 	}
 }
 
+func TestRestartRunsApacheGracefulFromApplicationRoot(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "bin", "httpd")
+	configPath := filepath.Join(root, "conf", "httpd.conf")
+	for _, path := range []string{executable, configPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var commandDir, commandName string
+	var commandArgs []string
+	provider := ApacheProvider{
+		runCommandInDir: func(directory, name string, args ...string) ([]byte, error) {
+			commandDir, commandName, commandArgs = directory, name, args
+			return nil, nil
+		},
+		serviceName: func(string, string) string { return "" },
+	}
+
+	if err := provider.Restart(app_provider.App{RootDir: root, AppType: "apache"}); err != nil {
+		t.Fatal(err)
+	}
+	if commandDir != root || commandName != executable || !reflect.DeepEqual(commandArgs, []string{"-f", configPath, "-k", "graceful"}) {
+		t.Fatalf("unexpected Apache graceful command: dir=%q name=%q args=%v", commandDir, commandName, commandArgs)
+	}
+}
+
 func TestRestartContinuesWhenApacheServiceIsAlreadyStopped(t *testing.T) {
 	root := t.TempDir()
 	executable := filepath.Join(root, "bin", "httpd.exe")

@@ -22,6 +22,21 @@
 
 > 同时提供cli命令行
 
+CLI 示例：
+
+```bash
+# 扫描已登记应用的站点并同步 HTTPS 证书
+certd-client sync
+
+# 每天凌晨 02:30 执行一次“站点扫描 + 证书同步”
+certd-client start --cron "30 2 * * *"
+
+# 未传 --cron 时，立即执行一次，再按本次启动的小时和分钟每天执行一次
+certd-client start
+```
+
+`--cron` 使用五段 Cron 表达式：`分 时 日 月 周`。`start` 启动后会打印启动成功、立即执行一轮任务，并在每轮结束后输出下次执行时间。`sync` 和 `start` 使用与 TUI 相同的 `internal/syncservice` 编排。Linux 上 Nginx 重载会沿用运行进程的 `-p` prefix（无法读取时回退到登记目录），Apache 重载使用应用根目录作为工作目录；目录扫描遇到权限不足会跳过并记录日志。定时任务可通过 `Ctrl+C` 或系统 `SIGTERM` 停止，IIS 仅在 Windows 注册。
+
 
 ## 技术栈
 

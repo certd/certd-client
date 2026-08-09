@@ -7,13 +7,13 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
 	"github.com/certd/certd-client/internal/app_provider/apache"
 	"github.com/certd/certd-client/internal/app_provider/nginx"
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
+	"github.com/certd/certd-client/internal/syncservice"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -158,10 +158,33 @@ func TestMenuIncludesSiteScan(t *testing.T) {
 	}
 }
 
-func TestNewModelUsesLongCertificatePollingWindow(t *testing.T) {
+func TestViewShowsSelectedMenuHelpWithSquareBorder(t *testing.T) {
 	model := NewModel(nil, nil, nil)
-	if model.syncInterval != 10*time.Second || model.syncAttempts != 60 || model.otherRetryAttempts != 3 {
-		t.Fatalf("expected certificate polling defaults, attempts=%d otherAttempts=%d interval=%s", model.syncAttempts, model.otherRetryAttempts, model.syncInterval)
+	model.width = 100
+	model.menuCursor = 4
+
+	view := model.View()
+
+	if !strings.Contains(view, menuHelp(model.menuCursor)) {
+		t.Fatalf("expected selected menu help in view: %s", view)
+	}
+	if strings.Contains(view, "╭") || strings.Contains(view, "╮") {
+		t.Fatalf("expected menu without rounded border: %s", view)
+	}
+}
+
+func TestEscCancelsRunningCertificateSync(t *testing.T) {
+	canceled := false
+	model := Model{
+		syncing:    true,
+		syncCancel: func() { canceled = true },
+	}
+
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+
+	if !canceled || command != nil || model.status != "正在取消证书同步" {
+		t.Fatalf("expected Esc to cancel synchronization, canceled=%v status=%q command=%v", canceled, model.status, command)
 	}
 }
 
@@ -515,7 +538,7 @@ func TestCertdSettingsMenuSavesJSONSetting(t *testing.T) {
 	if model.screen != homeScreen {
 		t.Fatalf("expected return to home after save, got %v", model.screen)
 	}
-	value, err := settings.GetSetting(certdSettingKey)
+	value, err := settings.GetSetting(syncservice.CertdSettingKey)
 	if err != nil {
 		t.Fatal(err)
 	}

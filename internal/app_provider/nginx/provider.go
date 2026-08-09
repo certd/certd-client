@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/certd/certd-client/internal/app_provider"
@@ -100,16 +101,47 @@ func (provider NginxProvider) effectivePrefix(root, executable string) string {
 }
 
 func (NginxProvider) runningProcessPrefix(executable string) string {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS == "windows" {
+		quotedExecutable := "'" + strings.ReplaceAll(executable, "'", "''") + "'"
+		script := "$target = " + quotedExecutable + "; Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $target, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1 -ExpandProperty CommandLine"
+		output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+		if err != nil {
+			return ""
+		}
+		return NginxProvider{}.prefixFromCommandLine(string(output))
+	}
+	if runtime.GOOS != "linux" {
 		return ""
 	}
-	quotedExecutable := "'" + strings.ReplaceAll(executable, "'", "''") + "'"
-	script := "$target = " + quotedExecutable + "; Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $target, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1 -ExpandProperty CommandLine"
-	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+	return NginxProvider{}.linuxProcessPrefix(executable)
+}
+
+func (NginxProvider) linuxProcessPrefix(executable string) string {
+	target, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		target = filepath.Clean(executable)
+	}
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return ""
 	}
-	return NginxProvider{}.prefixFromCommandLine(string(output))
+	for _, entry := range entries {
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		processExecutable, err := filepath.EvalSymlinks(filepath.Join("/proc", entry.Name(), "exe"))
+		if err != nil || filepath.Clean(processExecutable) != target {
+			continue
+		}
+		commandLine, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		if prefix := (NginxProvider{}).prefixFromCommandLine(strings.ReplaceAll(string(commandLine), "\x00", " ")); prefix != "" {
+			return prefix
+		}
+	}
+	return ""
 }
 
 func (NginxProvider) prefixFromCommandLine(commandLine string) string {

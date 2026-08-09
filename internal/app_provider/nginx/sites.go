@@ -24,13 +24,22 @@ func (provider NginxProvider) scanSites(root, prefix string) ([]app_provider.Sit
 	var sites []app_provider.Site
 	err = filepath.WalkDir(configRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if app_provider.IsPermissionDenied(walkErr) {
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			return walkErr
 		}
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".conf") {
+		if entry.IsDir() || !isNginxConfiguration(path, entry.Name()) {
 			return nil
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
+			if app_provider.IsPermissionDenied(readErr) {
+				return nil
+			}
 			return fmt.Errorf("read configuration %s: %w", path, readErr)
 		}
 		sites = append(sites, provider.parseServerBlocks(prefix, path, string(content))...)
@@ -46,6 +55,18 @@ func (provider NginxProvider) scanSites(root, prefix string) ([]app_provider.Sit
 		return sites[i].ConfigPath < sites[j].ConfigPath
 	})
 	return sites, nil
+}
+
+func isNginxConfiguration(path, name string) bool {
+	if strings.EqualFold(filepath.Ext(name), ".conf") || strings.EqualFold(name, "nginx.conf") {
+		return true
+	}
+	for _, directory := range []string{"sites-enabled", "conf.d"} {
+		if strings.EqualFold(filepath.Base(filepath.Dir(path)), directory) {
+			return true
+		}
+	}
+	return false
 }
 
 type serverBlock struct {

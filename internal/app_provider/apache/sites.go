@@ -24,6 +24,12 @@ func (provider ApacheProvider) scanSites(root string) ([]app_provider.Site, erro
 	var sites []app_provider.Site
 	err = filepath.WalkDir(configRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if app_provider.IsPermissionDenied(walkErr) {
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			return walkErr
 		}
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".conf") {
@@ -31,6 +37,9 @@ func (provider ApacheProvider) scanSites(root string) ([]app_provider.Site, erro
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
+			if app_provider.IsPermissionDenied(readErr) {
+				return nil
+			}
 			return fmt.Errorf("read configuration %s: %w", path, readErr)
 		}
 		sites = append(sites, provider.parseVirtualHosts(absoluteRoot, path, string(content))...)

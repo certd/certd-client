@@ -32,6 +32,18 @@ func DiscoverApplications(root, appType string, report func(Progress), findRoot 
 		pendingDirectories = pendingDirectories[:last]
 		entries, err := os.ReadDir(directory)
 		if err != nil {
+			if isPermissionDenied(err) {
+				scannedDirectories++
+				if report != nil {
+					report(Progress{
+						ProviderType:         appType,
+						ScannedDirectories:   scannedDirectories,
+						RemainingDirectories: len(pendingDirectories),
+						Warning:              fmt.Sprintf("无权限读取目录，已跳过：%s", directory),
+					})
+				}
+				continue
+			}
 			return nil, fmt.Errorf("scan %s files: read directory %s: %w", appType, directory, err)
 		}
 		scannedDirectories++
