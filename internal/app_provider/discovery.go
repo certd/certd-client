@@ -1,7 +1,9 @@
 package app_provider
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,14 +34,18 @@ func DiscoverApplications(root, appType string, report func(Progress), findRoot 
 		pendingDirectories = pendingDirectories[:last]
 		entries, err := os.ReadDir(directory)
 		if err != nil {
-			if isPermissionDenied(err) {
+			if isSkippableReadDirError(err) {
 				scannedDirectories++
+				warning := fmt.Sprintf("目录已不存在，已跳过：%s", directory)
+				if isPermissionDenied(err) {
+					warning = fmt.Sprintf("无权限读取目录，已跳过：%s", directory)
+				}
 				if report != nil {
 					report(Progress{
 						ProviderType:         appType,
 						ScannedDirectories:   scannedDirectories,
 						RemainingDirectories: len(pendingDirectories),
-						Warning:              fmt.Sprintf("无权限读取目录，已跳过：%s", directory),
+						Warning:              warning,
 					})
 				}
 				continue
@@ -50,6 +56,9 @@ func DiscoverApplications(root, appType string, report func(Progress), findRoot 
 		for _, entry := range entries {
 			path := filepath.Join(directory, entry.Name())
 			if entry.IsDir() {
+				if isDockerOverlay2Directory(path) {
+					continue
+				}
 				pendingDirectories = append(pendingDirectories, path)
 				continue
 			}
@@ -85,6 +94,15 @@ func DiscoverApplications(root, appType string, report func(Progress), findRoot 
 		apps = append(apps, App{RootDir: root, AppType: appType})
 	}
 	return apps, nil
+}
+
+func isSkippableReadDirError(err error) bool {
+	return isPermissionDenied(err) || errors.Is(err, fs.ErrNotExist)
+}
+
+func isDockerOverlay2Directory(path string) bool {
+	return strings.EqualFold(filepath.Base(path), "overlay2") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(path)), "docker")
 }
 
 func isWithin(root, candidate string) bool {

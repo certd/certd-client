@@ -237,6 +237,23 @@ func TestRegisteredAppsViewShowsHeadersAndSiteCounts(t *testing.T) {
 	}
 }
 
+func TestRegisteredApplicationsTitleShowsSyncStatus(t *testing.T) {
+	title := registeredApplicationsTitle([]storeRepo.TargetApp{{HttpsSiteCount: 3, SyncedSiteCount: 3}})
+	if strings.Contains(title, "✔") || strings.Contains(title, "!") {
+		t.Fatalf("summary title should not contain an application status icon, got %q", title)
+	}
+
+	healthy := formatApplicationRow(storeRepo.TargetApp{HttpsSiteCount: 3, SyncedSiteCount: 3}, 20)
+	if !strings.Contains(healthy, "✔") {
+		t.Fatalf("expected a check after the application's failure count, got %q", healthy)
+	}
+
+	failed := formatApplicationRow(storeRepo.TargetApp{HttpsSiteCount: 3, SyncedSiteCount: 2, FailedSiteCount: 1}, 20)
+	if !strings.Contains(failed, "!") {
+		t.Fatalf("expected a warning icon after the application's failure count, got %q", failed)
+	}
+}
+
 func TestApplicationTableSeparatesHeaderFromRows(t *testing.T) {
 	model := Model{apps: []storeRepo.TargetApp{{ID: 42, AppType: "nginx", RootDir: "C:\\nginx", Enabled: true}}}
 	view := model.View()
@@ -295,7 +312,7 @@ func TestApplicationTableShowsIDBeforeTypeAndFixedCountColumns(t *testing.T) {
 	app := storeRepo.TargetApp{ID: 42, AppType: "nginx", RootDir: `C:\\nginx`, Enabled: true, SiteCount: 1, HttpsSiteCount: 12, SyncedSiteCount: 3, FailedSiteCount: 4}
 	row := formatApplicationRow(app, rootWidth)
 	want := fixedColumn("42", 6) + " " + fixedColumn("nginx", 12) + " " + fixedColumn(app.RootDir, rootWidth) + " " +
-		fixedColumn("1", 8) + " " + fixedColumn("12", 11) + " " + fixedColumn("3", 6) + " " + fixedColumn("4", 4)
+		fixedColumn("1", 8) + " " + fixedColumn("12", 11) + " " + fixedColumn("3", 6) + " " + fixedColumn("4", 4) + " " + fixedColumn(applicationSyncStatus(app), 4)
 	if row != want {
 		t.Fatalf("expected ID before application type:\n got %q\nwant %q", row, want)
 	}

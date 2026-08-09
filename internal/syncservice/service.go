@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
@@ -19,10 +20,11 @@ import (
 )
 
 const (
-	defaultWaitMinutes = 10
-	pollingInterval    = 10 * time.Second
-	otherRetryInterval = 6 * time.Second
-	otherRetryAttempts = 3
+	defaultWaitMinutes          = 10
+	pollingInterval             = 10 * time.Second
+	otherRetryInterval          = 6 * time.Second
+	otherRetryAttempts          = 3
+	certificateFetchConcurrency = 3
 )
 
 const CertdSettingKey = "certd"
@@ -247,7 +249,7 @@ func (s *Service) syncApp(ctx context.Context, app storeRepo.TargetApp, client C
 		return false
 	}
 
-	deployed := make([]deployedSite, 0, len(sites))
+	pending := make([]pendingCertificateSite, 0, len(sites))
 	for _, site := range sites {
 		if ctx.Err() != nil {
 			return true
@@ -259,34 +261,104 @@ func (s *Service) syncApp(ctx context.Context, app storeRepo.TargetApp, client C
 			continue
 		}
 		s.updateStatus(site.ID, "syncing", "")
-		s.publish(config, fmt.Sprintf("同步中：正在请求 %s 证书", siteLabel))
 		providerSite := toProviderSite(site)
-		localExpiry := localCertificateExpiry(provider, providerSite)
-		remote, err := s.fetchCertificate(ctx, client, site.Domains, site.PrimaryDomain, config)
-		if err != nil {
+		pending = append(pending, pendingCertificateSite{
+			record: site, providerSite: providerSite, localExpiry: localCertificateExpiry(provider, providerSite), label: siteLabel,
+		})
+	}
+	fetched, canceled := s.fetchCertificates(ctx, client, config, pending)
+	if canceled {
+		return true
+	}
+	deployed := make([]deployedSite, 0, len(fetched))
+	for _, item := range fetched {
+		if ctx.Err() != nil {
+			return true
+		}
+		site := item.record
+		siteLabel := item.label
+		if item.err != nil {
 			if ctx.Err() != nil {
 				return true
 			}
-			s.updateStatus(site.ID, "failed", err.Error())
-			s.fail(result, fmt.Sprintf("%s：%v", siteLabel, err))
-			s.publish(config, fmt.Sprintf("同步中：%s 请求失败：%v", siteLabel, err))
+			s.updateStatus(site.ID, "failed", item.err.Error())
+			s.fail(result, fmt.Sprintf("%s：%v", siteLabel, item.err))
+			s.publish(config, fmt.Sprintf("同步中：%s 请求失败：%v", siteLabel, item.err))
 			continue
 		}
-		if !localExpiry.IsZero() && !remote.NotAfter.IsZero() && !localExpiry.Before(remote.NotAfter) {
+		if !item.localExpiry.IsZero() && !item.certificate.NotAfter.IsZero() && !item.localExpiry.Before(item.certificate.NotAfter) {
 			s.updateStatus(site.ID, "synced", "")
 			result.Skipped++
 			s.publish(config, fmt.Sprintf("同步中：%s 本地证书仍有效，跳过部署", siteLabel))
 			continue
 		}
-		if err := deployer.DeployCertificate(providerSite, remote); err != nil {
+		if err := deployer.DeployCertificate(item.providerSite, item.certificate); err != nil {
 			s.updateStatus(site.ID, "failed", err.Error())
 			s.fail(result, fmt.Sprintf("%s：部署失败：%v", siteLabel, err))
 			s.publish(config, fmt.Sprintf("同步中：%s 部署失败：%v", siteLabel, err))
 			continue
 		}
-		deployed = append(deployed, deployedSite{record: site, site: providerSite, remote: remote})
+		deployed = append(deployed, deployedSite{record: site, site: item.providerSite, remote: item.certificate})
 	}
 	return s.completeDeployments(ctx, app, provider, deployed, config, result)
+}
+
+type pendingCertificateSite struct {
+	record       storeRepo.AppSite
+	providerSite app_provider.Site
+	localExpiry  time.Time
+	label        string
+}
+
+type certificateFetchResult struct {
+	pendingCertificateSite
+	certificate certd.Certificate
+	err         error
+}
+
+func (s *Service) fetchCertificates(ctx context.Context, client CertificateClient, config Config, pending []pendingCertificateSite) ([]certificateFetchResult, bool) {
+	results := make([]certificateFetchResult, len(pending))
+	if len(pending) == 0 {
+		return results, false
+	}
+	workerCount := certificateFetchConcurrency
+	if len(pending) < workerCount {
+		workerCount = len(pending)
+	}
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case index, open := <-jobs:
+					if !open {
+						return
+					}
+					item := pending[index]
+					s.publish(config, fmt.Sprintf("同步中：正在请求 %s 证书", item.label))
+					certificate, err := s.fetchCertificate(ctx, client, item.record.Domains, item.record.PrimaryDomain, config, item.label)
+					results[index] = certificateFetchResult{pendingCertificateSite: item, certificate: certificate, err: err}
+				}
+			}
+		}()
+	}
+	for index := range pending {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return results, true
+		case jobs <- index:
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	return results, ctx.Err() != nil
 }
 
 type deployedSite struct {
@@ -339,7 +411,7 @@ func (s *Service) completeDeployments(ctx context.Context, app storeRepo.TargetA
 	return false
 }
 
-func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient, domains, primaryDomain string, config Config) (certd.Certificate, error) {
+func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient, domains, primaryDomain string, config Config, siteLabel string) (certd.Certificate, error) {
 	if domains == "" {
 		domains = primaryDomain
 	}
@@ -371,7 +443,7 @@ func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient
 			if pending {
 				pendingObserved = true
 				if attempt+1 < attempts {
-					s.publish(config, fmt.Sprintf("同步中：%v，等待 %d 秒后重新检查（%d/%d）", lastErr, int(pollingInterval/time.Second), attempt+1, attempts-1))
+					s.publish(config, fmt.Sprintf("同步中：%s：%v，等待 %d 秒后重新检查（%d/%d）", siteLabel, lastErr, int(pollingInterval/time.Second), attempt+1, attempts-1))
 				}
 			} else if pendingObserved {
 				return certd.Certificate{}, lastErr
@@ -382,7 +454,7 @@ func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient
 		}
 		if attempt+1 < maxAttempts {
 			if !pendingObserved {
-				s.publish(config, fmt.Sprintf("同步中：请求失败：%v，等待 %d 秒后重试（%d/%d）", lastErr, int(otherRetryInterval/time.Second), attempt+1, maxAttempts-1))
+				s.publish(config, fmt.Sprintf("同步中：%s 请求失败：%v，等待 %d 秒后重试（%d/%d）", siteLabel, lastErr, int(otherRetryInterval/time.Second), attempt+1, maxAttempts-1))
 				if !s.wait(ctx, otherRetryInterval) {
 					return certd.Certificate{}, ctx.Err()
 				}

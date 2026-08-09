@@ -52,3 +52,34 @@ server {
 		t.Fatalf("unexpected HTTPS site: %#v", secure)
 	}
 }
+
+func TestScanSitesFollowsIncludesFromMainConfiguration(t *testing.T) {
+	root := t.TempDir()
+	mainConfig := filepath.Join(root, "conf", "nginx.conf")
+	includedConfig := filepath.Join(root, "panel", "vhost", "nginx", "included.conf")
+	for _, path := range []string{mainConfig, includedConfig} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	includePattern := filepath.ToSlash(filepath.Join(root, "panel", "vhost", "nginx", "*.conf"))
+	if err := os.WriteFile(mainConfig, []byte("http {\n    include "+includePattern+";\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(includedConfig, []byte(`server {
+    listen 443 ssl;
+    server_name included.example.com;
+    ssl_certificate /etc/nginx/cert.pem;
+    ssl_certificate_key /etc/nginx/key.pem;
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sites, err := New().ScanSites(app_provider.App{RootDir: root, AppType: "nginx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 || sites[0].PrimaryDomain != "included.example.com" || sites[0].ConfigPath != includedConfig || !sites[0].Https {
+		t.Fatalf("expected included virtual host to be scanned, got %#v", sites)
+	}
+}

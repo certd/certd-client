@@ -35,6 +35,7 @@ const (
 	applicationHTTPSWidth  = 11
 	applicationSyncedWidth = 6
 	applicationFailedWidth = 4
+	applicationStatusWidth = 4
 )
 
 type Model struct {
@@ -931,6 +932,7 @@ func formatApplicationRow(app storeRepo.TargetApp, rootWidth int) string {
 		fixedColumn(fmt.Sprintf("%d", app.HttpsSiteCount), applicationHTTPSWidth),
 		fixedColumn(fmt.Sprintf("%d", app.SyncedSiteCount), applicationSyncedWidth),
 		fixedColumn(fmt.Sprintf("%d", app.FailedSiteCount), applicationFailedWidth),
+		fixedColumn(applicationSyncStatus(app), applicationStatusWidth),
 	}, " ")
 }
 
@@ -943,6 +945,7 @@ func applicationTableHeader(rootWidth int) string {
 		fixedColumn("HTTPS站点数", applicationHTTPSWidth),
 		fixedColumn("已同步", applicationSyncedWidth),
 		fixedColumn("异常", applicationFailedWidth),
+		fixedColumn("状态", applicationStatusWidth),
 	}, " ")
 }
 
@@ -971,7 +974,7 @@ func registeredApplicationsTitle(apps []storeRepo.TargetApp) string {
 }
 
 func applicationRootColumnWidth(width int) int {
-	rootWidth := width - 63
+	rootWidth := width - 68
 	if rootWidth < 12 {
 		return 12
 	}
@@ -979,6 +982,16 @@ func applicationRootColumnWidth(width int) int {
 		return 120
 	}
 	return rootWidth
+}
+
+func applicationSyncStatus(app storeRepo.TargetApp) string {
+	icon := "!"
+	color := lipgloss.Color("11")
+	if app.SyncedSiteCount == app.HttpsSiteCount && app.FailedSiteCount == 0 {
+		icon = "✔"
+		color = lipgloss.Color("10")
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(color).Padding(0, 1).Render(icon)
 }
 
 func siteTableHeader(configWidth int) string {

@@ -3,7 +3,9 @@ package syncservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,11 +104,17 @@ func TestFetchCertificateRetriesWhileCertificateIsApplying(t *testing.T) {
 	}}
 	service := New(&fakeSiteStore{}, app_provider.NewRegistry(), func(certd.Config) CertificateClient { return client })
 	service.sleep = func(time.Duration) {}
+	var progress []string
 
-	certificate, err := service.fetchCertificate(context.Background(), client, "example.com", "example.com", Config{MaxWaitMinutes: 1})
+	certificate, err := service.fetchCertificate(context.Background(), client, "example.com", "example.com", Config{MaxWaitMinutes: 1, Progress: func(message string) {
+		progress = append(progress, message)
+	}}, "应用[nginx] 站点[Id=1, example.com]")
 
 	if err != nil || client.requests != 2 || certificate.CertificatePEM != "certificate" {
 		t.Fatalf("expected pending certificate to be retried, requests=%d certificate=%#v err=%v", client.requests, certificate, err)
+	}
+	if !strings.Contains(strings.Join(progress, "\n"), "应用[nginx] 站点[Id=1, example.com]") {
+		t.Fatalf("expected site label in pending progress, got %#v", progress)
 	}
 }
 
@@ -118,10 +126,41 @@ func TestFetchCertificateFailsImmediatelyWhenApplyingChangesToAnotherError(t *te
 	service := New(&fakeSiteStore{}, app_provider.NewRegistry(), func(certd.Config) CertificateClient { return client })
 	service.sleep = func(time.Duration) {}
 
-	_, err := service.fetchCertificate(context.Background(), client, "example.com", "example.com", Config{MaxWaitMinutes: 10})
+	_, err := service.fetchCertificate(context.Background(), client, "example.com", "example.com", Config{MaxWaitMinutes: 10}, "应用[nginx] 站点[Id=1, example.com]")
 
 	if client.requests != 2 || err == nil || !strings.Contains(err.Error(), "流水线执行异常") {
 		t.Fatalf("expected immediate failure after applying status changed, requests=%d err=%v", client.requests, err)
+	}
+}
+
+func TestRunFetchesThreeCertificatesInParallel(t *testing.T) {
+	sites := make([]storeRepo.AppSite, 4)
+	for index := range sites {
+		sites[index] = storeRepo.AppSite{ID: uint(index + 1), PrimaryDomain: fmt.Sprintf("site-%d.example.com", index+1), Https: true}
+	}
+	client := newConcurrentCertificateClient()
+	service := New(&fakeSiteStore{sites: sites}, app_provider.NewRegistry(&fakeProvider{}), func(certd.Config) CertificateClient { return client })
+	completed := make(chan Result, 1)
+	go func() {
+		completed <- service.Run(context.Background(), []storeRepo.TargetApp{{ID: 10, AppType: "fake", RootDir: "/srv/fake"}}, Config{})
+	}()
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(client.release) })
+
+	for index := 0; index < 3; index++ {
+		select {
+		case <-client.started:
+		case <-time.After(time.Second):
+			t.Fatalf("expected request %d to start in parallel", index+1)
+		}
+	}
+	if client.maxActiveRequests() != 3 {
+		t.Fatalf("expected exactly three concurrent requests, got %d", client.maxActiveRequests())
+	}
+	releaseOnce.Do(func() { close(client.release) })
+	result := <-completed
+	if result.Succeeded != 4 || len(result.Errors) != 0 || client.maxActiveRequests() > 3 {
+		t.Fatalf("unexpected concurrent sync result=%#v max=%d", result, client.maxActiveRequests())
 	}
 }
 
@@ -280,6 +319,41 @@ func (notificationFailClient) GetCertificate([]string) (certd.Certificate, error
 
 func (notificationFailClient) SendDefaultNotification(string, string) error {
 	return errors.New("通知服务不可用")
+}
+
+type concurrentCertificateClient struct {
+	mu      sync.Mutex
+	active  int
+	max     int
+	started chan struct{}
+	release chan struct{}
+}
+
+func newConcurrentCertificateClient() *concurrentCertificateClient {
+	return &concurrentCertificateClient{started: make(chan struct{}, 4), release: make(chan struct{})}
+}
+
+func (c *concurrentCertificateClient) GetCertificate([]string) (certd.Certificate, error) {
+	c.mu.Lock()
+	c.active++
+	if c.active > c.max {
+		c.max = c.active
+	}
+	c.mu.Unlock()
+	c.started <- struct{}{}
+	<-c.release
+	c.mu.Lock()
+	c.active--
+	c.mu.Unlock()
+	return certd.Certificate{CertificatePEM: "certificate", NotAfter: time.Now().Add(time.Hour)}, nil
+}
+
+func (c *concurrentCertificateClient) SendDefaultNotification(string, string) error { return nil }
+
+func (c *concurrentCertificateClient) maxActiveRequests() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.max
 }
 
 type fakeProvider struct {
