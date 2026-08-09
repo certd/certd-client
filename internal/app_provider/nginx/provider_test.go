@@ -79,3 +79,79 @@ func TestScanAppsReportsDirectoryProgress(t *testing.T) {
 		t.Fatalf("unexpected final progress: %#v", last)
 	}
 }
+
+func TestRestartReloadsNginxFromApplicationRoot(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "sbin", "nginx.exe")
+	configPath := filepath.Join(root, "conf", "nginx.conf")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var commandName string
+	var commandArgs []string
+	var commandDir string
+	provider := NginxProvider{runCommandInDir: func(directory, name string, args ...string) ([]byte, error) {
+		commandDir = directory
+		commandName = name
+		commandArgs = args
+		return nil, nil
+	}}
+
+	if err := provider.Restart(app_provider.App{RootDir: root, AppType: "nginx"}); err != nil {
+		t.Fatal(err)
+	}
+	if commandDir != root || commandName != executable || len(commandArgs) != 6 || commandArgs[0] != "-p" || commandArgs[1] != root || commandArgs[2] != "-c" || commandArgs[3] != "conf/nginx.conf" || commandArgs[4] != "-s" || commandArgs[5] != "reload" {
+		t.Fatalf("unexpected nginx reload command: %s %v", commandName, commandArgs)
+	}
+}
+
+func TestRestartPreservesRunningNginxPrefix(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "sbin", "nginx.exe")
+	configPath := filepath.Join(root, "conf", "nginx.conf")
+	prefix := filepath.Join(root, "custom-prefix")
+	for _, path := range []string{executable, configPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var commandArgs []string
+	provider := NginxProvider{
+		runCommand: func(_ string, args ...string) ([]byte, error) {
+			commandArgs = args
+			return nil, nil
+		},
+		lookupProcessPrefix: func(path string) string {
+			if path != executable {
+				t.Fatalf("unexpected executable lookup: %s", path)
+			}
+			return prefix
+		},
+	}
+
+	if err := provider.Restart(app_provider.App{RootDir: root, AppType: "nginx"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(commandArgs) != 6 || commandArgs[0] != "-p" || commandArgs[1] != prefix || commandArgs[2] != "-c" || commandArgs[3] != configPath || commandArgs[4] != "-s" || commandArgs[5] != "reload" {
+		t.Fatalf("unexpected nginx reload command: %v", commandArgs)
+	}
+}
+
+func TestPrefixFromCommandLineUsesAbsoluteCustomPrefix(t *testing.T) {
+	prefix := New().prefixFromCommandLine(`"C:\Nginx\nginx.exe" -p "C:\Custom Nginx" -c conf/nginx.conf`)
+	if prefix != `C:\Custom Nginx` {
+		t.Fatalf("unexpected nginx prefix: %q", prefix)
+	}
+}

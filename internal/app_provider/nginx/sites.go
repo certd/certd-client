@@ -11,7 +11,7 @@ import (
 	"github.com/certd/certd-client/internal/app_provider"
 )
 
-func (provider NginxProvider) scanSites(root string) ([]app_provider.Site, error) {
+func (provider NginxProvider) scanSites(root, prefix string) ([]app_provider.Site, error) {
 	absoluteRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve nginx root: %w", err)
@@ -33,7 +33,7 @@ func (provider NginxProvider) scanSites(root string) ([]app_provider.Site, error
 		if readErr != nil {
 			return fmt.Errorf("read configuration %s: %w", path, readErr)
 		}
-		sites = append(sites, provider.parseServerBlocks(path, string(content))...)
+		sites = append(sites, provider.parseServerBlocks(prefix, path, string(content))...)
 		return nil
 	})
 	if err != nil {
@@ -49,11 +49,13 @@ func (provider NginxProvider) scanSites(root string) ([]app_provider.Site, error
 }
 
 type serverBlock struct {
-	domains []string
-	https   bool
+	domains         []string
+	https           bool
+	certificatePath string
+	privateKeyPath  string
 }
 
-func (provider NginxProvider) parseServerBlocks(configPath, content string) []app_provider.Site {
+func (provider NginxProvider) parseServerBlocks(prefix, configPath, content string) []app_provider.Site {
 	content = provider.stripComments(content)
 	var sites []app_provider.Site
 	var statement strings.Builder
@@ -76,10 +78,13 @@ func (provider NginxProvider) parseServerBlocks(configPath, content string) []ap
 		flushStatement()
 		if len(current.domains) > 0 {
 			sites = append(sites, app_provider.Site{
-				PrimaryDomain:  current.domains[0],
-				SubdomainCount: len(current.domains) - 1,
-				ConfigPath:     configPath,
-				Https:          current.https,
+				PrimaryDomain:   current.domains[0],
+				Domains:         append([]string(nil), current.domains...),
+				SubdomainCount:  len(current.domains) - 1,
+				ConfigPath:      configPath,
+				CertificatePath: provider.resolvePath(prefix, current.certificatePath),
+				PrivateKeyPath:  provider.resolvePath(prefix, current.privateKeyPath),
+				Https:           current.https,
 			})
 		}
 		current = nil
@@ -130,7 +135,22 @@ func (provider NginxProvider) parseServerDirective(server *serverBlock, statemen
 		}
 	case "ssl_certificate", "ssl_certificate_key":
 		server.https = true
+		if strings.EqualFold(fields[0], "ssl_certificate") {
+			server.certificatePath = fields[1]
+		} else {
+			server.privateKeyPath = fields[1]
+		}
 	}
+}
+
+func (NginxProvider) resolvePath(prefix, value string) string {
+	if value == "" || strings.Contains(value, "$") {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Join(prefix, filepath.FromSlash(value))
 }
 
 func (NginxProvider) appendUniqueDomains(domains []string, candidates []string) []string {

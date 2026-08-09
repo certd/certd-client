@@ -1,7 +1,12 @@
 // Package app_provider defines common application discovery and site scanning contracts.
 package app_provider
 
-import "strings"
+import (
+	"strings"
+	"time"
+
+	"github.com/certd/certd-client/internal/certd"
+)
 
 type App struct {
 	RootDir string
@@ -9,10 +14,14 @@ type App struct {
 }
 
 type Site struct {
-	PrimaryDomain  string
-	SubdomainCount int
-	ConfigPath     string
-	Https          bool
+	PrimaryDomain   string
+	Domains         []string
+	SubdomainCount  int
+	ConfigPath      string
+	CertificatePath string
+	PrivateKeyPath  string
+	DeploymentName  string
+	Https           bool
 }
 
 type Progress struct {
@@ -25,6 +34,19 @@ type Provider interface {
 	Type() string
 	ScanApps(root string, report func(Progress)) ([]App, error)
 	ScanSites(app App) ([]Site, error)
+}
+
+// CertificateDeployer is implemented by providers that can deploy renewed certificates.
+type CertificateDeployer interface {
+	DeployCertificate(Site, certd.Certificate) error
+}
+
+type CertificateInspector interface {
+	LocalCertificateExpiry(Site) (time.Time, error)
+}
+
+type CertificateRestarter interface {
+	Restart(App) error
 }
 
 type Registry struct {

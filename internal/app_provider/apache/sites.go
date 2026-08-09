@@ -33,7 +33,7 @@ func (provider ApacheProvider) scanSites(root string) ([]app_provider.Site, erro
 		if readErr != nil {
 			return fmt.Errorf("read configuration %s: %w", path, readErr)
 		}
-		sites = append(sites, provider.parseVirtualHosts(path, string(content))...)
+		sites = append(sites, provider.parseVirtualHosts(absoluteRoot, path, string(content))...)
 		return nil
 	})
 	if err != nil {
@@ -49,11 +49,13 @@ func (provider ApacheProvider) scanSites(root string) ([]app_provider.Site, erro
 }
 
 type virtualHost struct {
-	domains []string
-	https   bool
+	domains         []string
+	https           bool
+	certificatePath string
+	privateKeyPath  string
 }
 
-func (provider ApacheProvider) parseVirtualHosts(configPath, content string) []app_provider.Site {
+func (provider ApacheProvider) parseVirtualHosts(serverRoot, configPath, content string) []app_provider.Site {
 	var sites []app_provider.Site
 	var current *virtualHost
 	for _, line := range strings.Split(provider.stripComments(content), "\n") {
@@ -62,10 +64,13 @@ func (provider ApacheProvider) parseVirtualHosts(configPath, content string) []a
 		if strings.HasPrefix(lowerLine, "</virtualhost") {
 			if current != nil && len(current.domains) > 0 {
 				sites = append(sites, app_provider.Site{
-					PrimaryDomain:  current.domains[0],
-					SubdomainCount: len(current.domains) - 1,
-					ConfigPath:     configPath,
-					Https:          current.https,
+					PrimaryDomain:   current.domains[0],
+					Domains:         append([]string(nil), current.domains...),
+					SubdomainCount:  len(current.domains) - 1,
+					ConfigPath:      configPath,
+					CertificatePath: provider.resolvePath(serverRoot, current.certificatePath),
+					PrivateKeyPath:  provider.resolvePath(serverRoot, current.privateKeyPath),
+					Https:           current.https,
 				})
 			}
 			current = nil
@@ -89,9 +94,24 @@ func (provider ApacheProvider) parseVirtualHosts(configPath, content string) []a
 			current.https = strings.EqualFold(fields[1], "on")
 		case "sslcertificatefile", "sslcertificatekeyfile":
 			current.https = true
+			if strings.EqualFold(fields[0], "sslcertificatefile") {
+				current.certificatePath = fields[1]
+			} else {
+				current.privateKeyPath = fields[1]
+			}
 		}
 	}
 	return sites
+}
+
+func (ApacheProvider) resolvePath(serverRoot, value string) string {
+	if value == "" || strings.Contains(value, "$") {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Join(serverRoot, filepath.FromSlash(value))
 }
 
 func (ApacheProvider) appendUniqueDomains(domains []string, candidates []string) []string {

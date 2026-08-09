@@ -16,6 +16,7 @@ type applicationHostConfiguration struct {
 }
 
 type iisSite struct {
+	Name     string       `xml:"name,attr"`
 	Bindings []iisBinding `xml:"bindings>binding"`
 }
 
@@ -44,8 +45,10 @@ func (provider IisProvider) scanSites(root string) ([]app_provider.Site, error) 
 		}
 		sites = append(sites, app_provider.Site{
 			PrimaryDomain:  domains[0],
+			Domains:        domains,
 			SubdomainCount: len(domains) - 1,
 			ConfigPath:     configPath,
+			DeploymentName: configuredSite.Name,
 			Https:          https,
 		})
 	}

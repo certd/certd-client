@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
-	"github.com/certd/certd-client/internal/store"
+	"github.com/certd/certd-client/internal/certd"
+	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,37 +23,63 @@ const (
 	appManagementScreen
 	siteListScreen
 	deleteAppConfirmScreen
+	certdSettingsScreen
 )
 
-const logPageSize = 5
+const logPageSize = 10
+
+const (
+	applicationIDWidth     = 6
+	applicationTypeWidth   = 12
+	applicationSiteWidth   = 8
+	applicationHTTPSWidth  = 11
+	applicationSyncedWidth = 6
+	applicationFailedWidth = 4
+)
 
 type Model struct {
-	repo            *store.TargetAppRepository
-	providers       *app_provider.Registry
-	logger          *log.Logger
-	menuCursor      int
-	screen          screen
-	rootInput       textinput.Model
-	discovered      []app_provider.App
-	selected        map[string]bool
-	selectCursor    int
-	apps            []store.TargetApp
-	appManageCursor int
-	managedApp      store.TargetApp
-	managedSites    []store.AppSite
-	logs            []string
-	logScroll       int
-	scanning        bool
-	siteScanning    bool
-	scanProgress    app_provider.Progress
-	scanProgressCh  chan app_provider.Progress
-	status          string
-	width, height   int
+	repo               *storeRepo.TargetAppRepository
+	siteRepo           *storeRepo.AppSiteRepository
+	settingsRepo       *storeRepo.SettingsRepository
+	providers          *app_provider.Registry
+	logger             *log.Logger
+	menuCursor         int
+	screen             screen
+	rootInput          textinput.Model
+	discovered         []app_provider.App
+	selected           map[string]bool
+	selectCursor       int
+	apps               []storeRepo.TargetApp
+	appManageCursor    int
+	managedApp         storeRepo.TargetApp
+	managedSites       []storeRepo.AppSite
+	siteManageCursor   int
+	logs               []string
+	logScroll          int
+	scanning           bool
+	siteScanning       bool
+	scanProgress       app_provider.Progress
+	scanProgressCh     chan app_provider.Progress
+	status             string
+	certdInputs        [5]textinput.Model
+	certdFocus         int
+	syncing            bool
+	syncProgressCh     chan string
+	certdFactory       func(certd.Config) *certd.Client
+	syncAttempts       int
+	syncInterval       time.Duration
+	otherRetryInterval time.Duration
+	otherRetryAttempts int
+	width, height      int
 }
 
-var menuItems = []string{"应用扫描", "扫描站点", "应用管理"}
+var menuItems = []string{"应用扫描", "扫描站点", "应用管理", "Certd接口设置", "同步证书"}
 
-func NewModel(repo *store.TargetAppRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
+func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
+	return NewModelWithSettings(repo, siteRepo, nil, logger, registries...)
+}
+
+func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, settingsRepo *storeRepo.SettingsRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
 	input := textinput.New()
 	input.Placeholder = "例如 /etc 或 C:\\Web"
 	input.CharLimit = 2048
@@ -61,7 +88,19 @@ func NewModel(repo *store.TargetAppRepository, logger *log.Logger, registries ..
 	if len(registries) > 0 {
 		providers = registries[0]
 	}
-	return Model{repo: repo, providers: providers, logger: logger, rootInput: input, selected: make(map[string]bool)}
+	certdInputs := [5]textinput.Model{}
+	for i, placeholder := range []string{"https://certd.example.com", "keyId", "keySecret", "本机名称（可选）", "10"} {
+		certdInputs[i] = textinput.New()
+		certdInputs[i].Placeholder = placeholder
+		certdInputs[i].CharLimit = 2048
+		certdInputs[i].Width = 60
+	}
+	certdInputs[2].EchoMode = textinput.EchoPassword
+	return Model{
+		repo: repo, siteRepo: siteRepo, settingsRepo: settingsRepo, providers: providers, logger: logger,
+		rootInput: input, certdInputs: certdInputs, selected: make(map[string]bool),
+		certdFactory: certd.NewClient, syncAttempts: defaultCertificatePollingAttempts, syncInterval: certificatePollingInterval, otherRetryInterval: otherCertificateRetryInterval, otherRetryAttempts: 3,
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -69,7 +108,7 @@ func (m Model) Init() tea.Cmd {
 }
 
 type appsLoadedMsg struct {
-	apps []store.TargetApp
+	apps []storeRepo.TargetApp
 }
 
 type scanCompletedMsg struct {
@@ -80,12 +119,28 @@ type scanCompletedMsg struct {
 type scanProgressTickMsg struct{}
 
 type siteScanCompletedMsg struct {
-	appCount  int
-	siteCount int
-	errors    []string
+	appCount      int
+	siteCount     int
+	disabledCount int
+	httpsCount    int
+	newCount      int
+	errors        []string
 }
 
-func (m Model) loadApps() []store.TargetApp {
+type siteScanSummary struct {
+	siteCount     int
+	disabledCount int
+	httpsCount    int
+	newCount      int
+}
+
+type certificateSyncCompletedMsg struct {
+	result certificateSyncResult
+}
+
+type syncProgressTickMsg struct{}
+
+func (m Model) loadApps() []storeRepo.TargetApp {
 	if m.repo == nil {
 		return nil
 	}
@@ -131,15 +186,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case siteScanCompletedMsg:
 		m.siteScanning = false
 		m.apps = m.loadApps()
-		if len(msg.errors) == 0 {
-			m.status = fmt.Sprintf("站点扫描完成：扫描 %d 个应用，发现 %d 个站点", msg.appCount, msg.siteCount)
-		} else {
-			m.status = fmt.Sprintf("站点扫描完成：扫描 %d 个应用，发现 %d 个站点，失败 %d 个", msg.appCount, msg.siteCount, len(msg.errors))
+		m.status = fmt.Sprintf("站点扫描完成：扫描 %d 个应用，发现 %d 个站点，禁用 %d 个，HTTPS %d 个，新增 %d 个", msg.appCount, msg.siteCount, msg.disabledCount, msg.httpsCount, msg.newCount)
+		if len(msg.errors) > 0 {
+			m.status += fmt.Sprintf("，失败 %d 个", len(msg.errors))
 		}
 		m.appendLog(m.status)
 		for _, scanErr := range msg.errors {
 			m.appendLog("站点扫描失败：" + scanErr)
 		}
+	case certificateSyncCompletedMsg:
+		m.syncing = false
+		m.readSyncProgress()
+		m.syncProgressCh = nil
+		m.apps = m.loadApps()
+		m.status = fmt.Sprintf("证书同步完成：成功 %d，跳过 %d，失败 %d", msg.result.Succeeded, msg.result.Skipped, len(msg.result.Errors))
+		m.appendLog(m.status)
+		for _, item := range msg.result.Errors {
+			m.appendLog("证书同步失败：" + item)
+		}
+	case syncProgressTickMsg:
+		if !m.syncing {
+			return m, nil
+		}
+		m.readSyncProgress()
+		return m, syncProgressTick()
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.screen != rootInputScreen) {
 			return m, tea.Quit
@@ -165,6 +235,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSiteList(msg)
 		case deleteAppConfirmScreen:
 			return m.updateDeleteAppConfirm(msg)
+		case certdSettingsScreen:
+			return m.updateCertdSettings(msg)
 		}
 	}
 	return m, nil
@@ -181,6 +253,10 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuCursor++
 		}
 	case "enter", " ":
+		if m.scanning || m.siteScanning || m.syncing {
+			m.status = "已有任务正在执行"
+			return m, nil
+		}
 		if m.menuCursor == 0 {
 			m.screen = rootInputScreen
 			m.rootInput.Reset()
@@ -188,12 +264,12 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "请输入扫描根目录，回车开始扫描"
 			m.appendLog("开始应用扫描：等待输入根目录")
 		} else if m.menuCursor == 1 {
-			if m.scanning || m.siteScanning {
+			if m.scanning || m.siteScanning || m.syncing {
 				m.status = "已有扫描任务正在执行"
 				return m, nil
 			}
 			m.apps = m.loadApps()
-			activeApps := make([]store.TargetApp, 0, len(m.apps))
+			activeApps := make([]storeRepo.TargetApp, 0, len(m.apps))
 			for _, app := range m.apps {
 				if app.Enabled {
 					activeApps = append(activeApps, app)
@@ -208,13 +284,45 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("开始扫描 %d 个已登记应用的站点", len(activeApps))
 			m.appendLog(m.status)
 			return m, m.scanSites(activeApps)
-		} else {
+		} else if m.menuCursor == 2 {
 			m.apps = m.loadApps()
 			m.appManageCursor = 0
 			m.managedSites = nil
 			m.screen = appManagementScreen
 			m.status = fmt.Sprintf("应用管理：当前已登记 %d 个应用", len(m.apps))
 			m.appendLog(m.status)
+		} else if m.menuCursor == 3 {
+			m.loadCertdSettings()
+			m.certdFocus = 0
+			for i := range m.certdInputs {
+				m.certdInputs[i].Blur()
+			}
+			m.certdInputs[0].Focus()
+			m.screen = certdSettingsScreen
+			m.status = "请输入 Certd 接口配置，回车保存，Esc 返回"
+			m.appendLog("打开 Certd 接口设置")
+		} else {
+			if m.scanning || m.siteScanning || m.syncing {
+				m.status = "已有任务正在执行"
+				return m, nil
+			}
+			m.apps = m.loadApps()
+			activeApps := make([]storeRepo.TargetApp, 0, len(m.apps))
+			for _, app := range m.apps {
+				if app.Enabled {
+					activeApps = append(activeApps, app)
+				}
+			}
+			if len(activeApps) == 0 {
+				m.status = "暂无已启用应用，无法同步证书"
+				m.appendLog(m.status)
+				return m, nil
+			}
+			m.syncing = true
+			m.syncProgressCh = make(chan string, 32)
+			m.status = fmt.Sprintf("开始同步 %d 个应用的证书", len(activeApps))
+			m.appendLog(m.status)
+			return m, tea.Batch(m.syncCertificates(activeApps, m.syncProgressCh), syncProgressTick())
 		}
 	}
 	return m, nil
@@ -245,13 +353,19 @@ func (m Model) updateAppManagement(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.managedApp = m.apps[m.appManageCursor]
-		sites, err := m.repo.ListSites(m.managedApp.ID)
+		if m.siteRepo == nil {
+			m.status = "站点仓库未初始化"
+			m.appendLog(m.status)
+			return m, nil
+		}
+		sites, err := m.siteRepo.ListSites(m.managedApp.ID)
 		if err != nil {
 			m.status = "读取站点失败：" + err.Error()
 			m.appendLog(m.status)
 			return m, nil
 		}
 		m.managedSites = sites
+		m.siteManageCursor = 0
 		m.screen = siteListScreen
 		m.status = fmt.Sprintf("查看应用站点：%s", m.managedApp.RootDir)
 		m.appendLog(m.status)
@@ -267,6 +381,40 @@ func (m Model) updateSiteList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.screen = appManagementScreen
 		m.status = "返回应用管理"
+		return m, nil
+	}
+	if len(m.managedSites) == 0 {
+		return m, nil
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.siteManageCursor > 0 {
+			m.siteManageCursor--
+		}
+	case "down", "j":
+		if m.siteManageCursor < len(m.managedSites)-1 {
+			m.siteManageCursor++
+		}
+	case " ":
+		if m.siteRepo == nil {
+			m.status = "站点仓库未初始化"
+			m.appendLog(m.status)
+			return m, nil
+		}
+		site := &m.managedSites[m.siteManageCursor]
+		enabled := !site.Enabled
+		if err := m.siteRepo.SetEnabled(site.ID, enabled); err != nil {
+			m.status = "更新站点状态失败：" + err.Error()
+			m.appendLog(m.status)
+			return m, nil
+		}
+		site.Enabled = enabled
+		if enabled {
+			m.status = "已启用站点：" + site.PrimaryDomain
+		} else {
+			m.status = "已禁用站点：" + site.PrimaryDomain
+		}
+		m.appendLog(m.status)
 	}
 	return m, nil
 }
@@ -300,7 +448,7 @@ func (m Model) updateDeleteAppConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) scanSites(apps []store.TargetApp) tea.Cmd {
+func (m Model) scanSites(apps []storeRepo.TargetApp) tea.Cmd {
 	return func() tea.Msg {
 		result := siteScanCompletedMsg{appCount: len(apps)}
 		if m.repo == nil {
@@ -322,23 +470,60 @@ func (m Model) scanSites(apps []store.TargetApp) tea.Cmd {
 				result.errors = append(result.errors, fmt.Sprintf("%s：%v", app.RootDir, err))
 				continue
 			}
-			records := make([]store.AppSite, 0, len(sites))
+			records := make([]storeRepo.AppSite, 0, len(sites))
 			for _, site := range sites {
-				records = append(records, store.AppSite{
-					PrimaryDomain:  site.PrimaryDomain,
-					SubdomainCount: site.SubdomainCount,
-					ConfigPath:     site.ConfigPath,
-					Https:          site.Https,
+				records = append(records, storeRepo.AppSite{
+					PrimaryDomain:   site.PrimaryDomain,
+					Domains:         strings.Join(site.Domains, ","),
+					SubdomainCount:  site.SubdomainCount,
+					ConfigPath:      site.ConfigPath,
+					CertificatePath: site.CertificatePath,
+					PrivateKeyPath:  site.PrivateKeyPath,
+					DeploymentName:  site.DeploymentName,
+					Https:           site.Https,
 				})
 			}
-			if err := m.repo.SyncSites(app.ID, records); err != nil {
+			if m.siteRepo == nil {
+				result.errors = append(result.errors, "站点仓库未初始化")
+				continue
+			}
+			existing, err := m.siteRepo.ListSites(app.ID)
+			if err != nil {
+				result.errors = append(result.errors, fmt.Sprintf("%s：读取旧站点失败：%v", app.RootDir, err))
+				continue
+			}
+			summary := summarizeSiteScan(existing, records)
+			if err := m.siteRepo.SyncSites(app.ID, records); err != nil {
 				result.errors = append(result.errors, fmt.Sprintf("%s：%v", app.RootDir, err))
 				continue
 			}
-			result.siteCount += len(records)
+			result.siteCount += summary.siteCount
+			result.disabledCount += summary.disabledCount
+			result.httpsCount += summary.httpsCount
+			result.newCount += summary.newCount
 		}
 		return result
 	}
+}
+
+func summarizeSiteScan(existing []storeRepo.AppSite, discovered []storeRepo.AppSite) siteScanSummary {
+	known := make(map[string]bool, len(existing))
+	for _, site := range existing {
+		known[site.PrimaryDomain+"\x00"+site.ConfigPath] = site.Enabled
+	}
+	summary := siteScanSummary{siteCount: len(discovered)}
+	for _, site := range discovered {
+		if site.Https {
+			summary.httpsCount++
+		}
+		enabled, found := known[site.PrimaryDomain+"\x00"+site.ConfigPath]
+		if !found {
+			summary.newCount++
+		} else if !enabled {
+			summary.disabledCount++
+		}
+	}
+	return summary
 }
 
 func (m Model) updateRootInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -465,10 +650,10 @@ func (m Model) updateSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		path := m.discovered[m.selectCursor].RootDir
 		m.selected[path] = !m.selected[path]
 	case "enter":
-		apps := make([]store.TargetApp, 0, len(m.discovered))
+		apps := make([]storeRepo.TargetApp, 0, len(m.discovered))
 		for _, item := range m.discovered {
 			if m.selected[item.RootDir] {
-				apps = append(apps, store.TargetApp{RootDir: item.RootDir, AppType: item.AppType})
+				apps = append(apps, storeRepo.TargetApp{RootDir: item.RootDir, AppType: item.AppType})
 			}
 		}
 		if len(apps) == 0 {
@@ -521,8 +706,8 @@ func (m *Model) scrollLogs(direction int) {
 
 func (m Model) View() string {
 	width := m.width
-	if width < 60 {
-		width = 60
+	if width < 80 {
+		width = 80
 	}
 	menu := make([]string, 0, len(menuItems))
 	for i, item := range menuItems {
@@ -532,7 +717,7 @@ func (m Model) View() string {
 		}
 		menu = append(menu, prefix+item)
 	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("Certd Client · 本地应用管理")
+	header := renderTitle()
 	menuView := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(width - 4).Render(strings.Join(menu, "    "))
 
 	var center string
@@ -558,44 +743,68 @@ func (m Model) View() string {
 		}
 		center = "扫描到的应用安装目录（空格勾选，回车保存）\n\n" + strings.Join(rows, "\n")
 	case appManagementScreen:
-		rows := []string{"类型      安装目录                                        站点数  HTTPS站点数"}
+		rootWidth := applicationRootColumnWidth(width)
+		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}
 		for i, app := range m.apps {
 			cursor := "  "
 			if i == m.appManageCursor {
 				cursor = "▶ "
 			}
-			rows = append(rows, cursor+formatApplicationRow(app))
+			rows = append(rows, cursor+formatApplicationRow(app, rootWidth))
 		}
 		if len(m.apps) == 0 {
 			rows = append(rows, "暂无已登记应用")
 		}
 		center = "应用管理\n\n回车查看站点 · d 删除应用 · Esc 返回\n\n" + strings.Join(rows, "\n")
 	case siteListScreen:
-		rows := []string{"主域名                     子域名数  HTTPS  配置文件"}
-		for _, site := range m.managedSites {
+		configWidth := siteConfigColumnWidth(width)
+		rows := []string{siteTableHeader(configWidth), siteTableSeparator(configWidth)}
+		for i, site := range m.managedSites {
+			cursor := "  "
+			if i == m.siteManageCursor {
+				cursor = "▶ "
+			}
+			state := "禁用"
+			if site.Enabled {
+				state = "启用"
+			}
 			https := "否"
 			if site.Https {
 				https = "是"
 			}
-			rows = append(rows, fmt.Sprintf("%-26s %8d  %-5s  %s", site.PrimaryDomain, site.SubdomainCount, https, site.ConfigPath))
+			rows = append(rows, fmt.Sprintf("%s%s %s %s %s %s %s",
+				cursor,
+				fixedColumn(fmt.Sprintf("%d", site.ID), 6),
+				fixedColumn(state, 4),
+				fixedColumn(site.PrimaryDomain, 26),
+				fixedColumn(fmt.Sprintf("%d", site.SubdomainCount), 8),
+				fixedColumn(https, 5),
+				fixedColumn(site.ConfigPath, configWidth),
+			))
 		}
 		if len(m.managedSites) == 0 {
 			rows = append(rows, "该应用暂无已扫描站点")
 		}
-		center = "站点列表：" + m.managedApp.RootDir + "\n\n" + strings.Join(rows, "\n")
+		center = "站点列表：" + m.managedApp.RootDir + "\n\n上下键选择 · 空格启用/禁用 · Esc 返回\n\n" + strings.Join(rows, "\n")
 	case deleteAppConfirmScreen:
 		center = fmt.Sprintf("确认删除应用\n\n%s\n\n该应用及其 %d 个站点记录将被删除。\n\n按 y 确认，按 Esc 取消", m.managedApp.RootDir, m.managedApp.SiteCount)
+	case certdSettingsScreen:
+		center = "Certd 接口设置\n\nBaseURL\n" + m.certdInputs[0].View() + "\n\nKeyId\n" + m.certdInputs[1].View() + "\n\nKeySecret\n" + m.certdInputs[2].View() + "\n\n本机名称（可选）\n" + m.certdInputs[3].View() + "\n\n最长等待时长（分钟，默认 10）\n" + m.certdInputs[4].View() + "\n\nTab/上下键切换输入框 · Enter 保存 · Esc 返回"
 	default:
-		rows := []string{"类型      安装目录                                        站点数  HTTPS站点数"}
+		rootWidth := applicationRootColumnWidth(width)
+		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}
 		for _, app := range m.apps {
-			rows = append(rows, formatApplicationRow(app))
+			rows = append(rows, formatApplicationRow(app, rootWidth))
 		}
 		if len(m.apps) == 0 {
 			rows = append(rows, "暂无已扫描应用，请从左上菜单选择“应用扫描”")
 		}
-		center = "已登记应用\n\n" + strings.Join(rows, "\n")
+		center = registeredApplicationsTitle(m.apps) + "\n\n" + strings.Join(rows, "\n")
 	}
-	centerView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 4).Render(center)
+	renderCenterView := func(content string) string {
+		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 4).Render(content)
+	}
+	centerView := renderCenterView(center)
 	logEnd := len(m.logs) - m.logScroll
 	if logEnd < 0 {
 		logEnd = 0
@@ -608,18 +817,212 @@ func (m Model) View() string {
 		logStart = 0
 	}
 	logLines := m.logs[logStart:logEnd]
-	logView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Foreground(lipgloss.Color("244")).Width(width - 4).Render("执行日志\n\n" + strings.Join(logLines, "\n"))
+	totalLogPages := (len(m.logs) + logPageSize - 1) / logPageSize
+	if totalLogPages == 0 {
+		totalLogPages = 1
+	}
+	olderPages := 0
+	if logStart > 0 {
+		olderPages = (logStart + logPageSize - 1) / logPageSize
+	}
+	currentLogPage := totalLogPages - olderPages
+	logHeader := executionLogHeader(width, currentLogPage, totalLogPages)
 	status := m.status
 	if status == "" {
 		status = "←→ 选择菜单 · Enter 确认 · q 退出"
 	}
+	renderLogView := func(lines []string) string {
+		wrappedLines := wrapLogLines(lines, width-8)
+		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Foreground(lipgloss.Color("244")).Width(width - 4).Render(
+			fmt.Sprintf("%s\n\n%s", logHeader, strings.Join(wrappedLines, "\n")),
+		)
+	}
+	logView := renderLogView(logLines)
+	if m.height > 0 {
+		for visible := len(logLines); visible >= 0; visible-- {
+			displayLines := logLines
+			if visible < len(displayLines) {
+				displayLines = displayLines[len(displayLines)-visible:]
+			}
+			candidate := renderLogView(displayLines)
+			if lipgloss.Height(header+"\n"+menuView+"\n"+centerView+"\n"+candidate+"\n"+status) <= m.height || visible == 0 {
+				logView = candidate
+				break
+			}
+		}
+		centerLines := strings.Split(center, "\n")
+		for lipgloss.Height(header+"\n"+menuView+"\n"+centerView+"\n"+logView+"\n"+status) > m.height && len(centerLines) > 1 {
+			centerLines = centerLines[:len(centerLines)-1]
+			if len(centerLines) > 1 {
+				centerLines[len(centerLines)-1] = "…"
+			}
+			centerView = renderCenterView(strings.Join(centerLines, "\n"))
+		}
+	}
 	return header + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
 }
 
-func formatApplicationRow(app store.TargetApp) string {
+func executionLogHeader(width, current, total int) string {
+	title := "执行日志（PageUp/PageDown 翻页）"
+	info := fmt.Sprintf("滚动位置 %s %d/%d", logScrollbar(current, total), current, total)
+	contentWidth := width - 8
+	gap := contentWidth - lipgloss.Width(title) - lipgloss.Width(info)
+	if gap < 1 {
+		gap = 1
+	}
+	return title + strings.Repeat(" ", gap) + info
+}
+
+func logScrollbar(current, total int) string {
+	const width = 10
+	if total < 1 {
+		total = 1
+	}
+	position := (current - 1) * width / total
+	if position >= width {
+		position = width - 1
+	}
+	bar := make([]rune, width)
+	for i := range bar {
+		bar[i] = '░'
+	}
+	bar[position] = '█'
+	return string(bar)
+}
+
+func formatApplicationRow(app storeRepo.TargetApp, rootWidth int) string {
 	appType := app.AppType
 	if !app.Enabled {
 		appType += "（禁用）"
 	}
-	return fmt.Sprintf("%-12s %-48s %6d  %10d", appType, app.RootDir, app.SiteCount, app.HttpsSiteCount)
+	return strings.Join([]string{
+		fixedColumn(fmt.Sprintf("%d", app.ID), applicationIDWidth),
+		fixedColumn(appType, applicationTypeWidth),
+		fixedColumn(app.RootDir, rootWidth),
+		fixedColumn(fmt.Sprintf("%d", app.SiteCount), applicationSiteWidth),
+		fixedColumn(fmt.Sprintf("%d", app.HttpsSiteCount), applicationHTTPSWidth),
+		fixedColumn(fmt.Sprintf("%d", app.SyncedSiteCount), applicationSyncedWidth),
+		fixedColumn(fmt.Sprintf("%d", app.FailedSiteCount), applicationFailedWidth),
+	}, " ")
+}
+
+func applicationTableHeader(rootWidth int) string {
+	return strings.Join([]string{
+		fixedColumn("ID", applicationIDWidth),
+		fixedColumn("类型", applicationTypeWidth),
+		fixedColumn("安装目录", rootWidth),
+		fixedColumn("站点数", applicationSiteWidth),
+		fixedColumn("HTTPS站点数", applicationHTTPSWidth),
+		fixedColumn("已同步", applicationSyncedWidth),
+		fixedColumn("异常", applicationFailedWidth),
+	}, " ")
+}
+
+func renderTitle() string {
+	brand := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81")).Render("Certd Client")
+	divider := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  ")
+	subtitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("229")).Render("证书管理工具客户端")
+	return brand + divider + subtitle
+}
+
+func applicationTableSeparator(rootWidth int) string {
+	return strings.Repeat("─", lipgloss.Width(applicationTableHeader(rootWidth)))
+}
+
+func siteTableSeparator(configWidth int) string {
+	return strings.Repeat("─", lipgloss.Width(siteTableHeader(configWidth)))
+}
+
+func registeredApplicationsTitle(apps []storeRepo.TargetApp) string {
+	var httpsSites, failedSites int
+	for _, app := range apps {
+		httpsSites += app.HttpsSiteCount
+		failedSites += app.FailedSiteCount
+	}
+	return fmt.Sprintf("已登记应用【HTTPS站点数：%d，异常：%d】", httpsSites, failedSites)
+}
+
+func applicationRootColumnWidth(width int) int {
+	rootWidth := width - 63
+	if rootWidth < 12 {
+		return 12
+	}
+	if rootWidth > 120 {
+		return 120
+	}
+	return rootWidth
+}
+
+func siteTableHeader(configWidth int) string {
+	return strings.Join([]string{
+		"  " + fixedColumn("ID", 6),
+		fixedColumn("状态", 4),
+		fixedColumn("主域名", 26),
+		fixedColumn("子域名数", 8),
+		fixedColumn("HTTPS", 5),
+		fixedColumn("配置文件", configWidth),
+	}, " ")
+}
+
+func siteConfigColumnWidth(width int) int {
+	configWidth := width - 66
+	if configWidth < 16 {
+		return 16
+	}
+	if configWidth > 160 {
+		return 160
+	}
+	return configWidth
+}
+
+func fixedColumn(value string, width int) string {
+	if lipgloss.Width(value) > width {
+		const ellipsis = "..."
+		ellipsisWidth := lipgloss.Width(ellipsis)
+		trimmed := make([]rune, 0, width)
+		used := 0
+		for _, character := range value {
+			characterWidth := lipgloss.Width(string(character))
+			if used+characterWidth+ellipsisWidth > width {
+				break
+			}
+			trimmed = append(trimmed, character)
+			used += characterWidth
+		}
+		value = string(trimmed) + ellipsis
+	}
+	padding := width - lipgloss.Width(value)
+	if padding < 0 {
+		padding = 0
+	}
+	return value + strings.Repeat(" ", padding)
+}
+
+func wrapLogLines(lines []string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		current := strings.Builder{}
+		used := 0
+		for _, character := range line {
+			if character == '\n' {
+				wrapped = append(wrapped, current.String())
+				current.Reset()
+				used = 0
+				continue
+			}
+			characterWidth := lipgloss.Width(string(character))
+			if used > 0 && used+characterWidth > width {
+				wrapped = append(wrapped, current.String())
+				current.Reset()
+				used = 0
+			}
+			current.WriteRune(character)
+			used += characterWidth
+		}
+		wrapped = append(wrapped, current.String())
+	}
+	return wrapped
 }

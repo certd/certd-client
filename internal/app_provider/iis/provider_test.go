@@ -1,12 +1,17 @@
 package iis
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
+	"github.com/certd/certd-client/internal/certd"
 )
 
 func TestIisProviderImplementsProvider(t *testing.T) {
@@ -179,7 +184,7 @@ func TestScanSitesParsesApplicationHostConfig(t *testing.T) {
 		t.Fatalf("expected one IIS site, got %#v", sites)
 	}
 	site := sites[0]
-	if site.PrimaryDomain != "example.com" || site.SubdomainCount != 1 || !site.Https || site.ConfigPath != configPath {
+	if site.PrimaryDomain != "example.com" || site.SubdomainCount != 1 || !site.Https || site.ConfigPath != configPath || site.DeploymentName != "Example" || !reflect.DeepEqual(site.Domains, []string{"example.com", "www.example.com"}) {
 		t.Fatalf("unexpected IIS site: %#v", site)
 	}
 }
@@ -208,5 +213,79 @@ func TestDomainsFromBindingsSkipsUnsupportedAndInvalidDomains(t *testing.T) {
 	})
 	if len(domains) != 0 || !https {
 		t.Fatalf("unexpected parsed bindings: domains=%#v https=%v", domains, https)
+	}
+}
+
+func TestDeployCertificateImportsPfxAndUpdatesHttpsBinding(t *testing.T) {
+	iisRoot := filepath.Join(t.TempDir(), "inetsrv")
+	appCmdPath := filepath.Join(iisRoot, "appcmd.exe")
+	commands := make([]string, 0, 3)
+	provider := IisProvider{
+		lookupExecutable: func(string) (string, error) { return appCmdPath, nil },
+		runCommand: func(name string, args ...string) ([]byte, error) {
+			commands = append(commands, name+" "+strings.Join(args, " "))
+			if name == "powershell.exe" {
+				return []byte("ABC123\r\n"), nil
+			}
+			return nil, nil
+		},
+	}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Date(2026, 8, 9, 12, 34, 56, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate") || !strings.Contains(commands[1], "ForEach-Object") || !strings.Contains(commands[1], "ABC123") {
+		t.Fatalf("unexpected IIS deployment commands: %#v", commands)
+	}
+}
+
+func TestLocalCertificateExpiryReadsHttpsBindingCertificate(t *testing.T) {
+	called := false
+	provider := IisProvider{runCommand: func(name string, args ...string) ([]byte, error) {
+		called = true
+		if name != "powershell.exe" || !strings.Contains(strings.Join(args, " "), "Get-WebBinding") {
+			t.Fatalf("unexpected certificate inspection command: %s %v", name, args)
+		}
+		return []byte("1800000000\r\n"), nil
+	}}
+	expiry, err := provider.LocalCertificateExpiry(app_provider.Site{DeploymentName: "Example"})
+	if err != nil || expiry.Unix() != 1800000000 || !called {
+		t.Fatalf("unexpected IIS certificate expiry: %v called=%v err=%v", expiry, called, err)
+	}
+}
+
+func TestLocalCertificateExpirySupportsStringCertificateHash(t *testing.T) {
+	var script string
+	provider := IisProvider{runCommand: func(name string, args ...string) ([]byte, error) {
+		script = strings.Join(args, " ")
+		return []byte("1800000000\r\n"), nil
+	}}
+	if _, err := provider.LocalCertificateExpiry(app_provider.Site{DeploymentName: "Example"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "$bindings=@(Get-WebBinding") || !strings.Contains(script, "$hash=$binding.CertificateHash") || !strings.Contains(script, "-is [byte[]]") || !strings.Contains(script, "Sort-Object") {
+		t.Fatalf("expected certificate hash type handling in script: %s", script)
+	}
+}
+
+func TestLocalCertificateExpiryIncludesCommandOutputOnFailure(t *testing.T) {
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		return []byte("绑定不存在\r\n"), errors.New("exit status 1")
+	}}
+	_, err := provider.LocalCertificateExpiry(app_provider.Site{DeploymentName: "Example"})
+	if err == nil || !strings.Contains(err.Error(), "绑定不存在") {
+		t.Fatalf("expected command output in error, got %v", err)
+	}
+}
+
+func TestRestartRunsIisReset(t *testing.T) {
+	called := false
+	provider := IisProvider{runCommand: func(name string, args ...string) ([]byte, error) {
+		called = name == "iisreset.exe" && len(args) == 1 && strings.EqualFold(args[0], "/restart")
+		return nil, nil
+	}}
+	if err := provider.Restart(app_provider.App{AppType: "iis"}); err != nil || !called {
+		t.Fatalf("expected iisreset command, called=%v err=%v", called, err)
 	}
 }

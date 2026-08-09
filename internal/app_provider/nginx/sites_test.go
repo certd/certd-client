@@ -3,6 +3,7 @@ package nginx
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/certd/certd-client/internal/app_provider"
@@ -23,7 +24,8 @@ server {
 server {
     listen 443 ssl;
     server_name secure.example.com;
-    ssl_certificate cert.pem;
+    ssl_certificate ./ssl/cert.pem;
+	ssl_certificate_key ./ssl/key.pem;
 }
 `
 	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
@@ -42,11 +44,11 @@ server {
 		byDomain[site.PrimaryDomain] = site
 	}
 	plain := byDomain["example.com"]
-	if plain.ConfigPath != configPath || plain.SubdomainCount != 2 || plain.Https {
+	if plain.ConfigPath != configPath || plain.SubdomainCount != 2 || plain.Https || !reflect.DeepEqual(plain.Domains, []string{"example.com", "www.example.com", "api.example.com"}) {
 		t.Fatalf("unexpected plain HTTP site: %#v", plain)
 	}
 	secure := byDomain["secure.example.com"]
-	if secure.ConfigPath != configPath || secure.SubdomainCount != 0 || !secure.Https {
+	if secure.ConfigPath != configPath || secure.SubdomainCount != 0 || !secure.Https || secure.CertificatePath != filepath.Join(root, "ssl", "cert.pem") || secure.PrivateKeyPath != filepath.Join(root, "ssl", "key.pem") {
 		t.Fatalf("unexpected HTTPS site: %#v", secure)
 	}
 }
