@@ -35,7 +35,46 @@ certd-client start --cron "30 2 * * *"
 certd-client start
 ```
 
+```bash
+# 查看客户端版本
+certd-client version
+```
+
 `--cron` 使用五段 Cron 表达式：`分 时 日 月 周`。`start` 启动后会打印启动成功、立即执行一轮任务，并在每轮结束后输出下次执行时间。`sync` 和 `start` 使用与 TUI 相同的 `internal/syncservice` 编排。Linux 上 Nginx 重载会沿用运行进程的 `-p` prefix（无法读取时回退到登记目录），Apache 重载使用应用根目录作为工作目录；目录扫描遇到权限不足会跳过并记录日志。定时任务可通过 `Ctrl+C` 或系统 `SIGTERM` 停止，IIS 仅在 Windows 注册。
+
+## 安装与更新
+
+复制对应系统的命令执行即可：
+
+Linux 和 macOS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.sh | sh
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.ps1 | iex
+```
+
+两个脚本都会提示安装目录，直接回车时安装到当前目录的 `certd-client` 子目录。它们会比较 GitHub 与 AtomGit 最新 Release 下载地址的响应时间，选择更快的源下载当前系统和 CPU 架构对应的包；已安装时直接覆盖二进制完成更新，再启动客户端。
+
+## 版本与发布
+
+版本配置位于 `internal/version/version.go` 的 `Version`，必须符合 Node.js 使用的 [SemVer](https://semver.org/lang/zh-CN/) 格式，例如 `0.1.0`、`1.2.3-rc.1`。终端 UI 标题和 `certd-client version` 都会显示该版本。
+
+本地发布使用 PowerShell：
+
+```powershell
+./scripts/release.ps1
+```
+
+脚本要求工作区干净，并在修改版本前执行 `go test ./...` 和 `go vet ./...`；任一失败会取消发布。通过检查后，再根据上一个 `v*` 标签后的 Conventional Commits 自动确定版本段：破坏性变更为 major，`feat` 为 minor，`fix` 和 `perf` 为 patch。它会生成或更新 `CHANGELOG.md`，提交版本更新、创建 `vX.Y.Z` 标签并推送到 GitHub。可用 `./scripts/release.ps1 -DryRun` 预览结果，或传 `-Bump major|minor|patch` 覆盖自动判断。
+
+推送版本标签后 GitHub Actions 会运行测试，构建 Windows、Linux 和 macOS 的 amd64/arm64 安装包，并创建 GitHub Release。Release 发布成功后会把 Release 与资产同步到 AtomGit；普通 GitHub push 会同步全部分支和标签到 AtomGit 同名仓库。
+
+GitHub 仓库需要设置 `ATOMGIT_TOKEN` Secret（AtomGit 具备仓库写入和 API 权限的个人令牌）。可选 Variables：`ATOMGIT_REPOSITORY`（默认 `certd/certd-client`）和 `ATOMGIT_API_BASE`（默认 `https://api.atomgit.com/api/v5`）。
 
 
 ## 技术栈

@@ -1,0 +1,35 @@
+name: 同步代码到 AtomGit
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      ATOMGIT_REPOSITORY: ${{ vars.ATOMGIT_REPOSITORY || 'certd/certd-client' }}
+      ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 同步全部分支和标签
+        shell: bash
+        run: |
+          if [ -z "$ATOMGIT_TOKEN" ]; then
+            echo "缺少 ATOMGIT_TOKEN Secret" >&2
+            exit 1
+          fi
+          git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          git remote add atomgit "https://oauth2:${ATOMGIT_TOKEN}@atomgit.com/${ATOMGIT_REPOSITORY}.git"
+          git push atomgit --all
+          git push atomgit --tags

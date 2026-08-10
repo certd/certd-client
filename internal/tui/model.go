@@ -9,6 +9,7 @@ import (
 
 	"github.com/certd/certd-client/internal/app_provider"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
+	"github.com/certd/certd-client/internal/version"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,7 +36,7 @@ const (
 	applicationHTTPSWidth  = 11
 	applicationSyncedWidth = 6
 	applicationFailedWidth = 4
-	applicationStatusWidth = 4
+	applicationStatusWidth = 5
 )
 
 type Model struct {
@@ -727,13 +728,14 @@ func (m Model) View() string {
 	for i, item := range menuItems {
 		prefix := "  "
 		if i == m.menuCursor {
-			prefix = "▶ "
+			prefix = "> "
 		}
 		menu = append(menu, prefix+item)
 	}
-	header := renderTitle()
+	header := renderTitle(width)
+	top := "\n" + header
 	menuContent := strings.Join(menu, "    ") + "\n" + menuHelp(m.menuCursor)
-	menuView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 4).Render(menuContent)
+	menuView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 5).MaxWidth(width - 3).Render(menuContent)
 
 	var center string
 	switch m.screen {
@@ -752,7 +754,7 @@ func (m Model) View() string {
 			}
 			cursor := "  "
 			if i == m.selectCursor {
-				cursor = "▶ "
+				cursor = "> "
 			}
 			rows = append(rows, fmt.Sprintf("%s%s [%s] %s", cursor, mark, item.AppType, item.RootDir))
 		}
@@ -763,7 +765,7 @@ func (m Model) View() string {
 		for i, app := range m.apps {
 			cursor := "  "
 			if i == m.appManageCursor {
-				cursor = "▶ "
+				cursor = "> "
 			}
 			rows = append(rows, cursor+formatApplicationRow(app, rootWidth))
 		}
@@ -777,7 +779,7 @@ func (m Model) View() string {
 		for i, site := range m.managedSites {
 			cursor := "  "
 			if i == m.siteManageCursor {
-				cursor = "▶ "
+				cursor = "> "
 			}
 			state := "禁用"
 			if site.Enabled {
@@ -817,7 +819,7 @@ func (m Model) View() string {
 		center = registeredApplicationsTitle(m.apps) + "\n\n" + strings.Join(rows, "\n")
 	}
 	renderCenterView := func(content string) string {
-		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 4).Render(content)
+		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 5).MaxWidth(width - 3).Render(content)
 	}
 	centerView := renderCenterView(center)
 	logEnd := len(m.logs) - m.logScroll
@@ -848,7 +850,7 @@ func (m Model) View() string {
 	}
 	renderLogView := func(lines []string) string {
 		wrappedLines := wrapLogLines(lines, width-8)
-		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Foreground(lipgloss.Color("244")).Width(width - 4).Render(
+		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Foreground(lipgloss.Color("244")).Width(width - 5).MaxWidth(width - 3).Render(
 			fmt.Sprintf("%s\n\n%s", logHeader, strings.Join(wrappedLines, "\n")),
 		)
 	}
@@ -860,13 +862,13 @@ func (m Model) View() string {
 				displayLines = displayLines[len(displayLines)-visible:]
 			}
 			candidate := renderLogView(displayLines)
-			if lipgloss.Height(header+"\n"+menuView+"\n"+centerView+"\n"+candidate+"\n"+status) <= m.height || visible == 0 {
+			if lipgloss.Height(top+"\n"+menuView+"\n"+centerView+"\n"+candidate+"\n"+status) <= m.height || visible == 0 {
 				logView = candidate
 				break
 			}
 		}
 		centerLines := strings.Split(center, "\n")
-		for lipgloss.Height(header+"\n"+menuView+"\n"+centerView+"\n"+logView+"\n"+status) > m.height && len(centerLines) > 1 {
+		for lipgloss.Height(top+"\n"+menuView+"\n"+centerView+"\n"+logView+"\n"+status) > m.height && len(centerLines) > 1 {
 			centerLines = centerLines[:len(centerLines)-1]
 			if len(centerLines) > 1 {
 				centerLines[len(centerLines)-1] = "…"
@@ -874,7 +876,7 @@ func (m Model) View() string {
 			centerView = renderCenterView(strings.Join(centerLines, "\n"))
 		}
 	}
-	return header + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
+	return top + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
 }
 
 func menuHelp(index int) string {
@@ -949,11 +951,18 @@ func applicationTableHeader(rootWidth int) string {
 	}, " ")
 }
 
-func renderTitle() string {
+func renderTitle(width int) string {
 	brand := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81")).Render("Certd Client")
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  ")
 	subtitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("229")).Render("证书管理工具客户端")
-	return brand + divider + subtitle
+	build := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  v" + version.String())
+	title := brand + divider + subtitle + build
+	availableWidth := width - 1
+	padding := (availableWidth - lipgloss.Width(title)) / 2
+	if padding < 0 {
+		padding = 0
+	}
+	return strings.Repeat(" ", padding) + title
 }
 
 func applicationTableSeparator(rootWidth int) string {
@@ -974,7 +983,7 @@ func registeredApplicationsTitle(apps []storeRepo.TargetApp) string {
 }
 
 func applicationRootColumnWidth(width int) int {
-	rootWidth := width - 68
+	rootWidth := width - 69
 	if rootWidth < 12 {
 		return 12
 	}
@@ -988,7 +997,7 @@ func applicationSyncStatus(app storeRepo.TargetApp) string {
 	icon := "!"
 	color := lipgloss.Color("11")
 	if app.SyncedSiteCount == app.HttpsSiteCount && app.FailedSiteCount == 0 {
-		icon = "✔"
+		icon = "✓"
 		color = lipgloss.Color("10")
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(color).Padding(0, 1).Render(icon)

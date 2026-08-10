@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/certd/certd-client/internal/version"
 )
 
 func TestWriteStartupErrorPersistsFailure(t *testing.T) {
@@ -80,6 +82,12 @@ func TestStartScheduleMessages(t *testing.T) {
 func TestSyncSummaryMessage(t *testing.T) {
 	if got := syncSummaryMessage(2, 3, 1); got != "执行总结：成功 2，跳过 3，失败 1" {
 		t.Fatalf("unexpected summary message: %q", got)
+	}
+}
+
+func TestVersionMessage(t *testing.T) {
+	if got, want := versionMessage(), "certd-client "+version.String(); got != want {
+		t.Fatalf("unexpected version message: got %q want %q", got, want)
 	}
 }
 

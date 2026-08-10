@@ -22,6 +22,7 @@ import (
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
 	"github.com/certd/certd-client/internal/tui"
+	"github.com/certd/certd-client/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/robfig/cron/v3"
 )
@@ -33,6 +34,10 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	if isVersionCommand(os.Args[1:]) {
+		fmt.Println(versionMessage())
+		return
+	}
 	if runtime.GOOS == "windows" {
 		relaunched, err := elevation.New().Request()
 		if err != nil {
@@ -98,13 +103,24 @@ func run(args []string) error {
 				return err
 			}
 			return runStart(schedule, expression, service, repo, settingsRepo, logger)
+		case "version":
+			fmt.Println(versionMessage())
+			return nil
 		default:
-			return fmt.Errorf("未知命令 %q，可用命令：tui、sync、start", args[0])
+			return fmt.Errorf("未知命令 %q，可用命令：tui、sync、start、version", args[0])
 		}
 	}
 	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
+}
+
+func isVersionCommand(args []string) bool {
+	return len(args) == 1 && strings.EqualFold(args[0], "version")
+}
+
+func versionMessage() string {
+	return "certd-client " + version.String()
 }
 
 func parseStartSchedule(args []string, now time.Time) (cron.Schedule, string, error) {

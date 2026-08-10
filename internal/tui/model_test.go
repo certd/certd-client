@@ -168,6 +168,9 @@ func TestViewShowsSelectedMenuHelpWithSquareBorder(t *testing.T) {
 	if !strings.Contains(view, menuHelp(model.menuCursor)) {
 		t.Fatalf("expected selected menu help in view: %s", view)
 	}
+	if strings.Contains(view, "▶") || !strings.Contains(view, "> 同步证书") {
+		t.Fatalf("expected a single-column menu cursor: %s", view)
+	}
 	if strings.Contains(view, "╭") || strings.Contains(view, "╮") {
 		t.Fatalf("expected menu without rounded border: %s", view)
 	}
@@ -227,7 +230,7 @@ func TestRegisteredAppsViewShowsHeadersAndSiteCounts(t *testing.T) {
 	if !strings.Contains(view, "证书管理工具客户端") {
 		t.Fatalf("expected branded title in view:\n%s", view)
 	}
-	for _, text := range []string{"已登记应用【HTTPS站点数：1，异常：0】", "ID", "类型", "安装目录", "站点数", "HTTPS站点数", "nginx", "42", "C:\\nginx", "2", "1"} {
+	for _, text := range []string{"v0.1.0", "已登记应用【HTTPS站点数：1，异常：0】", "ID", "类型", "安装目录", "站点数", "HTTPS站点数", "nginx", "42", "C:\\nginx", "2", "1"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("expected %q in registered apps view:\n%s", text, view)
 		}
@@ -237,14 +240,54 @@ func TestRegisteredAppsViewShowsHeadersAndSiteCounts(t *testing.T) {
 	}
 }
 
+func TestRenderTitleUsesCenteredSingleLineWithoutFillingViewport(t *testing.T) {
+	title := renderTitle(80)
+	lines := strings.Split(title, "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected a single-line title, got %q", title)
+	}
+	for _, expected := range []string{"Certd Client", "证书管理工具客户端", "v0.1.0"} {
+		if !strings.Contains(lines[0], expected) {
+			t.Fatalf("expected title line %q in %q", expected, lines[0])
+		}
+	}
+	content := strings.TrimLeft(title, " ")
+	padding := lipgloss.Width(title) - lipgloss.Width(content)
+	wantPadding := (79 - lipgloss.Width(content)) / 2
+	if padding != wantPadding || lipgloss.Width(title) >= 80 {
+		t.Fatalf("expected centered title without filling the viewport: title=%q padding=%d want=%d", title, padding, wantPadding)
+	}
+}
+
+func TestViewPlacesMenuDirectlyBelowCenteredTitle(t *testing.T) {
+	lines := strings.Split((Model{width: 80}).View(), "\n")
+	preview := lines
+	if len(preview) > 3 {
+		preview = preview[:3]
+	}
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "" || !strings.Contains(lines[1], "Certd Client") || strings.TrimSpace(lines[2]) == "" {
+		t.Fatalf("expected one blank line above the centered title and the menu directly below it, got %q", preview)
+	}
+}
+
+func TestViewLeavesLastTerminalColumnUnused(t *testing.T) {
+	model := Model{width: 120, menuCursor: 4}
+
+	for _, line := range strings.Split(model.View(), "\n") {
+		if lipgloss.Width(line) >= model.width {
+			t.Fatalf("rendered line must leave the last terminal column unused: width=%d viewport=%d line=%q", lipgloss.Width(line), model.width, line)
+		}
+	}
+}
+
 func TestRegisteredApplicationsTitleShowsSyncStatus(t *testing.T) {
 	title := registeredApplicationsTitle([]storeRepo.TargetApp{{HttpsSiteCount: 3, SyncedSiteCount: 3}})
-	if strings.Contains(title, "✔") || strings.Contains(title, "!") {
+	if strings.Contains(title, "✓") || strings.Contains(title, "!") {
 		t.Fatalf("summary title should not contain an application status icon, got %q", title)
 	}
 
 	healthy := formatApplicationRow(storeRepo.TargetApp{HttpsSiteCount: 3, SyncedSiteCount: 3}, 20)
-	if !strings.Contains(healthy, "✔") {
+	if !strings.Contains(healthy, "✓") {
 		t.Fatalf("expected a check after the application's failure count, got %q", healthy)
 	}
 
@@ -277,6 +320,27 @@ func TestRegisteredAppsHeaderStaysOnOneLine(t *testing.T) {
 		}
 	}
 	t.Fatalf("application header not found:\n%s", view)
+}
+
+func TestViewNeverExceedsViewportWidthWithApplicationStatus(t *testing.T) {
+	model := Model{
+		width: 80,
+		apps: []storeRepo.TargetApp{{
+			ID:              1,
+			AppType:         "nginx",
+			RootDir:         `C:\\very-long-installation-directory`,
+			Enabled:         true,
+			SiteCount:       1,
+			HttpsSiteCount:  1,
+			SyncedSiteCount: 1,
+		}},
+	}
+
+	for _, line := range strings.Split(model.View(), "\n") {
+		if lipgloss.Width(line) > model.width {
+			t.Fatalf("rendered line exceeds viewport: width=%d viewport=%d line=%q", lipgloss.Width(line), model.width, line)
+		}
+	}
 }
 
 func TestViewFitsTerminalHeightAfterScan(t *testing.T) {
@@ -312,7 +376,7 @@ func TestApplicationTableShowsIDBeforeTypeAndFixedCountColumns(t *testing.T) {
 	app := storeRepo.TargetApp{ID: 42, AppType: "nginx", RootDir: `C:\\nginx`, Enabled: true, SiteCount: 1, HttpsSiteCount: 12, SyncedSiteCount: 3, FailedSiteCount: 4}
 	row := formatApplicationRow(app, rootWidth)
 	want := fixedColumn("42", 6) + " " + fixedColumn("nginx", 12) + " " + fixedColumn(app.RootDir, rootWidth) + " " +
-		fixedColumn("1", 8) + " " + fixedColumn("12", 11) + " " + fixedColumn("3", 6) + " " + fixedColumn("4", 4) + " " + fixedColumn(applicationSyncStatus(app), 4)
+		fixedColumn("1", applicationSiteWidth) + " " + fixedColumn("12", applicationHTTPSWidth) + " " + fixedColumn("3", applicationSyncedWidth) + " " + fixedColumn("4", applicationFailedWidth) + " " + fixedColumn(applicationSyncStatus(app), applicationStatusWidth)
 	if row != want {
 		t.Fatalf("expected ID before application type:\n got %q\nwant %q", row, want)
 	}
@@ -343,6 +407,12 @@ func TestWideTerminalExpandsPathColumns(t *testing.T) {
 	}
 	if got := siteConfigColumnWidth(220); got <= 64 {
 		t.Fatalf("expected a wide terminal to expand the site config column, got %d", got)
+	}
+}
+
+func TestApplicationRootWidthReservesStatusColumn(t *testing.T) {
+	if got, want := applicationRootColumnWidth(100), 31; got != want {
+		t.Fatalf("expected application path width to reserve the status column: got %d want %d", got, want)
 	}
 }
 

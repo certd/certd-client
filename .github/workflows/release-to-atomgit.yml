@@ -1,0 +1,91 @@
+name: 同步 Release 到 AtomGit
+
+on:
+  workflow_run:
+    workflows:
+      - 发布
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      ATOMGIT_REPOSITORY: ${{ vars.ATOMGIT_REPOSITORY || 'certd/certd-client' }}
+      ATOMGIT_API_BASE: ${{ vars.ATOMGIT_API_BASE || 'https://api.atomgit.com/api/v5' }}
+      ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 确定发布标签
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" --jq '.[0].tag_name')
+          fi
+          if [[ -z "$TAG" || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "无法确定 GitHub Release 标签" >&2
+            exit 1
+          fi
+          echo "将同步 Release：$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+      - name: 等待 AtomGit 标签同步
+        shell: bash
+        run: |
+          for _ in $(seq 1 30); do
+            if git ls-remote --exit-code "https://atomgit.com/$ATOMGIT_REPOSITORY.git" "refs/tags/$TAG" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "AtomGit 尚未同步标签 $TAG" >&2
+          exit 1
+      - name: 下载 GitHub Release 资产
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+      - name: 创建 AtomGit Release 并上传资产
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$ATOMGIT_TOKEN" ]; then
+            echo "缺少 ATOMGIT_TOKEN Secret" >&2
+            exit 1
+          fi
+          api_token=$(jq -rn --arg value "$ATOMGIT_TOKEN" '$value | @uri')
+          owner=${ATOMGIT_REPOSITORY%%/*}
+          repo=${ATOMGIT_REPOSITORY#*/}
+          if [ -z "$owner" ] || [ -z "$repo" ] || [ "$owner" = "$repo" ]; then
+            echo "ATOMGIT_REPOSITORY 必须为 owner/repo 格式" >&2
+            exit 1
+          fi
+          release_base="$ATOMGIT_API_BASE/repos/$owner/$repo/releases"
+          release_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          release_name=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name --jq .name)
+          release_name=${release_name:-$TAG}
+          payload=$(jq -n --arg name "$release_name" --arg tag "$TAG" --arg body "$release_body" '{name: $name, tag_name: $tag, body: $body, release_status: "published"}')
+          curl --fail-with-body --request POST \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "$release_base?access_token=$api_token"
+          for file in dist/*; do
+            filename=$(basename "$file")
+            encoded_filename=$(jq -rn --arg value "$filename" '$value | @uri')
+            upload=$(curl --fail-with-body \
+              "$release_base/$TAG/upload_url?access_token=$api_token&file_name=$encoded_filename")
+            upload_url=$(jq -r .url <<<"$upload")
+            if [ -z "$upload_url" ] || [ "$upload_url" = "null" ]; then
+              echo "未获取到 $filename 的 AtomGit 上传地址" >&2
+              exit 1
+            fi
+            mapfile -t upload_headers < <(jq -r '.headers | to_entries[] | "\(.key): \(.value)"' <<<"$upload")
+            header_args=()
+            for header in "${upload_headers[@]}"; do
+              header_args+=(--header "$header")
+            done
+            curl --fail-with-body --request PUT --upload-file "$file" "${header_args[@]}" "$upload_url"
+          done
