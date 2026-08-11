@@ -38,6 +38,8 @@
 - 客户端版本统一由 `internal/version.Version` 管理，必须符合 Node.js SemVer；发布标签使用 `vX.Y.Z`，版本号按 Conventional Commits 自动递增，破坏性变更为 major、`feat` 为 minor、`fix` 与 `perf` 为 patch。`scripts/release.ps1` 必须在修改版本、提交、打标签和推送之前执行本地 `go test ./...` 与 `go vet ./...`，任一失败即取消发布。
 - GitHub 发布流程需先完成跨平台构建并创建 GitHub Release；GitHub push 通过 `atomgit.com` 同步代码，GitHub Release 发布成功后通过 `https://api.atomgit.com/api/v5` 创建同版本 Release。附件先调用 `releases/{tag}/upload_url` 获取签名地址，再按返回的请求头使用 `PUT` 上传。所有 AtomGit 令牌只能通过 GitHub Secret 传入，禁止写入仓库。
 - 所有 GitHub Actions 工作流必须提供 `workflow_dispatch`，以支持从 GitHub 页面手动触发；手动发布或同步 Release 时应提供可选或必填的版本标签输入，避免误用当前分支名。
+- GitHub 到 AtomGit 的代码同步必须先将 GitHub 分支 fetch 到 `refs/remotes/origin/*`，再显式映射推送至 AtomGit 分支，不能 fetch 到可能已检出的本地分支；AtomGit 作为镜像时可强制更新其分支和标签。
+- 平台专用实现的测试必须仅在对应平台执行；发布工作流的测试矩阵至少覆盖 Linux 与 Windows，避免 Linux CI 漏测 Windows 专用行为。
 
 ## 数据模型
 

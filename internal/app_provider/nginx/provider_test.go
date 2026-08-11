@@ -3,6 +3,7 @@ package nginx
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/certd/certd-client/internal/app_provider"
@@ -150,6 +151,9 @@ func TestRestartPreservesRunningNginxPrefix(t *testing.T) {
 }
 
 func TestPrefixFromCommandLineUsesAbsoluteCustomPrefix(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 进程命令行使用 Windows 路径")
+	}
 	prefix := New().prefixFromCommandLine(`"C:\Nginx\nginx.exe" -p "C:\Custom Nginx" -c conf/nginx.conf`)
 	if prefix != `C:\Custom Nginx` {
 		t.Fatalf("unexpected nginx prefix: %q", prefix)

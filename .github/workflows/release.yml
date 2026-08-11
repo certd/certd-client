@@ -16,8 +16,14 @@ permissions:
 
 jobs:
   test:
-    name: 测试
-    runs-on: ubuntu-latest
+    name: 测试 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -149,6 +150,9 @@ func TestRestartRunsApacheGracefulFromApplicationRoot(t *testing.T) {
 }
 
 func TestRestartContinuesWhenApacheServiceIsAlreadyStopped(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows 使用 GBK 解码服务停止提示")
+	}
 	root := t.TempDir()
 	executable := filepath.Join(root, "bin", "httpd.exe")
 	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
@@ -179,6 +183,9 @@ func TestRestartContinuesWhenApacheServiceIsAlreadyStopped(t *testing.T) {
 }
 
 func TestApacheRestartDecodesWindowsGbkOutput(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows 命令输出使用 GBK")
+	}
 	root := t.TempDir()
 	executable := filepath.Join(root, "bin", "httpd.exe")
 	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
