@@ -1,3 +1,6 @@
+## [0.2.2] - 2026-08-11
+
+- perf(github-release): 改用CHANGELOG自定义内容作为发布说明 (6c38773f)
 ## [0.2.1] - 2026-08-11
 
 # Changelog
