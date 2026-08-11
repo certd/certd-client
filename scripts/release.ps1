@@ -46,10 +46,10 @@ function Get-BumpType {
     if ($Body -match '(?im)^BREAKING CHANGE(?:S)?\s*:|(?m)^[a-z]+(?:\([^)]*\))?!:') {
         return "major"
     }
-    if ($CommitText -match '(?im)^feat(?:\([^)]*\))?:') {
+    if ($CommitText -match '(?im)^[^\t]+\tfeat(?:\([^)]*\))?:') {
         return "minor"
     }
-    if ($CommitText -match '(?im)^(fix|perf)(?:\([^)]*\))?:') {
+    if ($CommitText -match '(?im)^[^\t]+\t(fix|perf)(?:\([^)]*\))?:') {
         return "patch"
     }
     throw "最近的提交中没有 feat、fix 或 perf，无法自动决定版本段"
@@ -126,7 +126,7 @@ try {
         $parts = $entry -split "`t", 2
         $subject = if ($parts.Count -gt 1) { $parts[1].Trim() } else { $parts[0].Trim() }
         $shortHash = $parts[0].Substring(0, [Math]::Min(8, $parts[0].Length))
-        $changelogLines += "- $subject (`$shortHash`)"
+        $changelogLines += "- $subject ($shortHash)"
     }
     $changelogLines += ""
 
