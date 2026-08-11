@@ -18,6 +18,16 @@ function Invoke-GitText {
     return (($output -join [Environment]::NewLine).Trim())
 }
 
+function Set-Utf8NoBomContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
 function Parse-SemVer {
     param([Parameter(Mandatory = $true)][string]$Value)
 
@@ -139,10 +149,10 @@ try {
     }
 
     $updatedSource = $versionSource.Replace($versionMatch.Value, "var Version = `"$nextVersion`"")
-    Set-Content -Path $versionPath -Value $updatedSource -Encoding UTF8
+    Set-Utf8NoBomContent -Path $versionPath -Content $updatedSource
     $changelogPath = Join-Path $root "CHANGELOG.md"
     $oldChangelog = if (Test-Path $changelogPath) { Get-Content -Raw -Encoding UTF8 $changelogPath } else { "# Changelog`n`n" }
-    Set-Content -Path $changelogPath -Value (($changelogLines -join "`n") + $oldChangelog) -Encoding UTF8
+    Set-Utf8NoBomContent -Path $changelogPath -Content (($changelogLines -join "`n") + $oldChangelog)
 
     Invoke-GitText @("add", "internal/version/version.go", "CHANGELOG.md") | Out-Null
     Invoke-GitText @("commit", "-m", "chore(release): $tag") | Write-Host
