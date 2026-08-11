@@ -70,7 +70,7 @@ irm https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.ps
 ./scripts/release.ps1
 ```
 
-脚本要求工作区干净，并在修改版本前执行 `go test ./...` 和 `go vet ./...`；任一失败会取消发布。通过检查后，再根据上一个 `v*` 标签后的 Conventional Commits 自动确定版本段：破坏性变更为 major，`feat` 为 minor，`fix` 和 `perf` 为 patch。它会生成或更新 `CHANGELOG.md`，提交版本更新、创建 `vX.Y.Z` 标签并推送到 GitHub。可用 `./scripts/release.ps1 -DryRun` 预览结果，或传 `-Bump major|minor|patch` 覆盖自动判断。
+脚本要求工作区干净，并在修改版本前执行 `go test ./...` 和 `go vet ./...`；任一失败会取消发布。通过检查后，再根据上一个 `v*` 标签后的 Conventional Commits 自动确定版本段：破坏性变更为 major，`feat` 为 minor，`fix` 和 `perf` 为 patch；没有这些类型时默认升 patch。它会生成或更新 `CHANGELOG.md`，提交版本更新、创建 `vX.Y.Z` 标签并推送到 GitHub。CHANGELOG 仅记录 `feat`、`fix`、`perf` 提交。可用 `./scripts/release.ps1 -DryRun` 预览结果，或传 `-Bump major|minor|patch` 覆盖自动判断。
 
 推送版本标签后 GitHub Actions 会运行测试，构建 Windows、Linux 和 macOS 的 amd64/arm64 安装包，并创建 GitHub Release。Release 发布成功后会把 Release 与资产同步到 AtomGit；普通 GitHub push 会同步全部分支和标签到 AtomGit 同名仓库。
 

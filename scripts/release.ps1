@@ -79,7 +79,7 @@ function Get-BumpType {
     if ($CommitText -match '(?im)^[^\t]+\t(fix|perf)(?:\([^)]*\))?:') {
         return "patch"
     }
-    throw "最近的提交中没有 feat、fix 或 perf，无法自动决定版本段"
+    return "patch"
 }
 
 function Is-ChangelogCommit {
