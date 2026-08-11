@@ -37,6 +37,7 @@
 - Certd 开放接口错误码：`20000` ApiToken 错误、`20001` ApiToken 签名错误、`20002` ApiToken 时间戳错误、`20003` 不支持的签名类型、`20010` 请求参数错误、`20011` 证书不存在、`20012` 证书还未生成、`20013` 证书正在申请中、`20014` 域名校验方式未配置、`20015` 流水线执行异常、`20021` 用户邮箱未配置。只有连续返回 `20013` 时使用后台长轮询，不得立即报同步失败，轮询间隔为 10 秒；轮询过程中一旦返回其他错误，必须立即失败，不得继续长轮询。最长等待时长由 Certd 接口设置中的分钟数决定，默认 10 分钟。首次或后续发生的其他接口错误最多重试 3 次，重试间隔不得少于 6 秒。
 - 客户端版本统一由 `internal/version.Version` 管理，必须符合 Node.js SemVer；发布标签使用 `vX.Y.Z`，版本号按 Conventional Commits 自动递增，破坏性变更为 major、`feat` 为 minor、`fix` 与 `perf` 为 patch。`scripts/release.ps1` 必须在修改版本、提交、打标签和推送之前执行本地 `go test ./...` 与 `go vet ./...`，任一失败即取消发布。
 - GitHub 发布流程需先完成跨平台构建并创建 GitHub Release；GitHub push 通过 `atomgit.com` 同步代码，GitHub Release 发布成功后通过 `https://api.atomgit.com/api/v5` 创建同版本 Release。附件先调用 `releases/{tag}/upload_url` 获取签名地址，再按返回的请求头使用 `PUT` 上传。所有 AtomGit 令牌只能通过 GitHub Secret 传入，禁止写入仓库。
+- 所有 GitHub Actions 工作流必须提供 `workflow_dispatch`，以支持从 GitHub 页面手动触发；手动发布或同步 Release 时应提供可选或必填的版本标签输入，避免误用当前分支名。
 
 ## 数据模型
 

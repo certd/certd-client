@@ -6,6 +6,12 @@ on:
       - 发布
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要同步的 Release 标签；留空时同步最新 Release"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -19,7 +25,7 @@ jobs:
       ATOMGIT_API_BASE: ${{ vars.ATOMGIT_API_BASE || 'https://api.atomgit.com/api/v5' }}
       ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.event.workflow_run.head_branch }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
     steps:
       - uses: actions/checkout@v4
       - name: 确定发布标签
