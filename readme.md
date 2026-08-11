@@ -1,111 +1,209 @@
-# certd-client
+# Certd Client
 
-自动化证书管理系统[Certd](https://github.com/certd/certd) 的官方客户端       
-本客户端运行于要部署证书的目标服务器上，承担本地服务器上应用证书的更新检查、拉取和部署工作。
-解决某些对于服务器安全性要求较高的场景，不希望暴露ssh端口和密钥的情况。
+Certd Client 是 [Certd](https://github.com/certd/certd) 的本机证书部署客户端。它运行在 Web 服务器上，自动发现 Nginx、Apache 和 IIS 站点，从 Certd 获取新证书并部署到本机。
 
+适用于不希望开放 SSH、无法由 Certd 直接访问目标服务器，或同时维护多台 Windows/Linux Web 服务器的场景。
 
+![Certd Client 主界面](docs/images/index2.png)
 
-## 主要功能
+## 能做什么
 
-1、自动扫描本机上的Nginx、Apache、IIS站点信息（兼容宝塔、1Panel等面板），列出所有的需要部署证书的站点
-2、解析站点域名，然后向certd获取证书，如果本地证书有效期低于certd的证书有效期，则更新并部署
-3、每天自动运行
-4、如果有部署失败的，调用certd接口发送异常通知
+- 扫描本机 Nginx、Apache、IIS 安装目录和站点配置，兼容宝塔、1Panel 等常见面板环境。
+- 自动识别站点域名、HTTPS 状态、配置文件和证书路径。
+- 从 Certd 开放接口查询证书；缺少证书时可触发 Certd 自动申请。
+- 比较远端与本地证书到期时间，只有远端证书更新时才部署，避免不必要的服务重载。
+- 自动重载 Nginx、Apache，或更新 IIS 证书存储和 HTTPS 绑定，使新证书生效。
+- 支持手动同步、每日定时同步和命令行自动化。
+- 同步失败时汇总错误，并调用 Certd 默认通知渠道提醒管理员。
+- 所有执行日志会显示在终端，同时写入 `./logs/client.log`。
 
+## 支持范围
 
-## 提供终端UI操作菜单
+| 应用 | Windows | Linux | 说明 |
+| --- | --- | --- | --- |
+| Nginx | 支持 | 支持 | 扫描配置、部署证书并重载 |
+| Apache | 支持 | 支持 | 扫描虚拟主机、部署证书并重载 |
+| IIS | 支持 | 不适用 | 导入本机证书存储并更新 HTTPS 绑定 |
 
-1、管理Certd授权
-2、扫描本机站点 -> 分类表格展示站点列表，类型，配置路径，证书状态【证书已同步，证书申请失败，证书申请中，同步中】，失败原因
-3、手动执行部署
+> Windows 请以管理员身份运行客户端。IIS 证书导入、服务重载和部分面板目录读取需要管理员权限。
 
-> 同时提供cli命令行
+## 安装
 
-CLI 示例：
+### Windows
 
-```bash
-# 扫描已登记应用的站点并同步 HTTPS 证书
-certd-client sync
-
-# 每天凌晨 02:30 执行一次“站点扫描 + 证书同步”
-certd-client start --cron "30 2 * * *"
-
-# 未传 --cron 时，立即执行一次，再按本次启动的小时和分钟每天执行一次
-certd-client start
-```
-
-```bash
-# 查看客户端版本
-certd-client version
-```
-
-`--cron` 使用五段 Cron 表达式：`分 时 日 月 周`。`start` 启动后会打印启动成功、立即执行一轮任务，并在每轮结束后输出下次执行时间。`sync` 和 `start` 使用与 TUI 相同的 `internal/syncservice` 编排。Linux 上 Nginx 重载会沿用运行进程的 `-p` prefix（无法读取时回退到登记目录），Apache 重载使用应用根目录作为工作目录；目录扫描遇到权限不足会跳过并记录日志。定时任务可通过 `Ctrl+C` 或系统 `SIGTERM` 停止，IIS 仅在 Windows 注册。
-
-## 安装与更新
-
-复制对应系统的命令执行即可：
-
-Linux 和 macOS：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.sh | sh
-```
-
-Windows PowerShell：
+在 PowerShell 中执行：
 
 ```powershell
 irm https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.ps1 | iex
 ```
 
-两个脚本都会提示安装目录，直接回车时安装到当前目录的 `certd-client` 子目录。它们会比较 GitHub 与 AtomGit 最新 Release 下载地址的响应时间，选择更快的源下载当前系统和 CPU 架构对应的包；已安装时直接覆盖二进制完成更新，再启动客户端。
+脚本会提示安装目录。直接回车时，客户端安装到当前目录的 `certd-client` 子目录；再次执行同一命令会更新已有客户端。
 
-## 版本与发布
-
-版本配置位于 `internal/version/version.go` 的 `Version`，必须符合 Node.js 使用的 [SemVer](https://semver.org/lang/zh-CN/) 格式，例如 `0.1.0`、`1.2.3-rc.1`。终端 UI 标题和 `certd-client version` 都会显示该版本。
-
-本地发布使用 PowerShell：
-
-```powershell
-./scripts/release.ps1
-```
-
-脚本要求工作区干净，并在修改版本前执行 `go test ./...` 和 `go vet ./...`；任一失败会取消发布。通过检查后，再根据上一个 `v*` 标签后的 Conventional Commits 自动确定版本段：破坏性变更为 major，`feat` 为 minor，`fix` 和 `perf` 为 patch；没有这些类型时默认升 patch。它会生成或更新 `CHANGELOG.md`，提交版本更新、创建 `vX.Y.Z` 标签并推送到 GitHub。CHANGELOG 仅记录 `feat`、`fix`、`perf` 提交。可用 `./scripts/release.ps1 -DryRun` 预览结果，或传 `-Bump major|minor|patch` 覆盖自动判断。
-
-推送版本标签后 GitHub Actions 会运行测试，构建 Windows、Linux 和 macOS 的 amd64/arm64 安装包，并创建 GitHub Release。Release 发布成功后会把 Release 与资产同步到 AtomGit；普通 GitHub push 会同步全部分支和标签到 AtomGit 同名仓库。
-
-GitHub 仓库需要设置 `ATOMGIT_TOKEN` Secret（AtomGit 具备仓库写入和 API 权限的个人令牌）。可选 Variables：`ATOMGIT_REPOSITORY`（默认 `certd/certd-client`）和 `ATOMGIT_API_BASE`（默认 `https://api.atomgit.com/api/v5`）。
-
-
-## 技术栈
-
-* golang
-* sqlite3
-
-## 当前客户端原型
-
-启动 TUI：
+### Linux 和 macOS
 
 ```bash
-go run ./cmd/certd-client
+curl -fsSL https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.sh | sh
 ```
 
-Windows 启动时会请求管理员权限，以读取 IIS 配置并支持后续证书部署；非 Windows 平台不会请求提权。
+### 确认安装
 
-界面包含“应用扫描”、“扫描站点”、“应用管理”、“Certd接口设置”和“同步证书”五个菜单。选择“应用扫描”后输入根目录，程序会递归识别 Nginx 的 `*/conf/nginx.conf`、`*/sbin/nginx`、`*/bin/nginx` 以及 Apache 的 `*/conf/httpd.conf`、`*/bin/httpd` 等特征，列出安装根目录；IIS 不递归扫描目录，而是执行 `appcmd list site` 检查安装状态并登记 `inetsrv` 目录。使用空格勾选、回车保存到 SQLite 的 `target_app` 表。相同安装路径会原地更新并保留应用 ID。
+```bash
+certd-client version
+```
 
-每次应用扫描开始前，客户端会校验已登记应用的根目录；不存在的目录会标记为禁用，不参与站点扫描。再次扫描到同一路径时会自动恢复启用。
+直接运行 `certd-client` 会打开终端操作界面。Windows 上请在“以管理员身份运行”的终端中执行。
 
-“扫描站点”会扫描所有已登记应用的配置树：Nginx 解析 `server_name`、HTTPS 监听和证书配置；Apache 解析 `VirtualHost`、`ServerName`、`ServerAlias` 与 SSL 指令；IIS 解析 `config/applicationHost.config` 中的站点绑定。结果同步到 SQLite 的 `app_site` 表。站点记录包含主域名、子域名数量、配置文件路径、应用 ID 和 HTTPS 状态。已登记应用会显示在中部区域，操作日志同时写入 `./logs/client.log`，数据库文件默认位于 `./data/certd-client.db`。
+## 使用前准备
 
-应用扫描与站点扫描通过已注册的 `app_provider` 执行。新增应用类型时实现并注册对应 Provider，即可接入同一主流程。
+在开始同步前，需要确认：
 
-“Certd接口设置”使用 `settings` 表的 `certd` 键保存 baseUrl、keyId、keySecret 和可选的本机名称。选择“同步证书”后，客户端遍历已登记应用的 HTTPS 站点，向 Certd 请求证书时启用自动申请并使用默认模板（`autoApplyTemplateId: 0`），申请中自动重试；当 Certd 证书有效期晚于本地证书时，通过对应 Provider 写入证书和私钥文件，并执行 Nginx 配置重载、Apache graceful 重载或 IIS 绑定刷新使新证书生效。IIS 导入证书时会使用主域名和到期时间设置 FriendlyName，更新全部 HTTPS 绑定，重启 IIS 后检查所有绑定证书是否已生效。同步结束后汇总结果，失败时调用 Certd 默认通知渠道，通知标题附带本机名称；本机名称为空时使用主机名和 IP。
+1. 已部署 [Certd 证书自动化管理系统](https://github.com/certd/certd)。 
+2. 已导入域名
+![Certd 域名管理](docs/images/pre_domain_imported.png)
 
-已登记应用表格显示站点总数、HTTPS 站点数、已同步数量和异常数量；非 HTTPS 站点不会参与证书同步。
+## 快速开始
 
-“应用管理”可查看已登记应用的站点列表，也支持删除应用；在应用管理中按回车查看站点，按 `d` 删除当前应用并按 `y` 确认。站点列表可通过上下键选择，按空格启用或禁用站点；禁用站点不参与证书同步，重新扫描时会保留其禁用状态。删除确认后会同时删除该应用关联的全部站点记录。
+首次使用按以下顺序操作：扫描应用、扫描站点、确认站点、配置 Certd 接口、同步证书。
 
-执行日志支持 `PageUp` / `PageDown` 分页浏览，新日志产生时自动回到最新页。
 
-扫描在后台执行。扫描时间超过 10 秒时，执行日志每 10 秒记录一次已扫描目录数和当前待扫描目录数，界面保持可响应。
+### 1. 扫描应用
+
+选择“应用扫描”，输入一个包含 Web 服务安装目录的根目录，例如 Windows 的 `C:\data`、`C:\www`，或 Linux 的 `/www`、`/usr/local`。
+
+![输入应用扫描根目录](docs/images/scan_app.png)
+
+目录较大时，扫描会在后台进行，界面仍可响应键盘。日志每 10 秒报告已扫描和待扫描目录数量；没有权限或在扫描过程中消失的目录会跳过，不会中断整个扫描。
+
+![应用扫描进度](docs/images/scan_app_ing.png)
+
+扫描完成后，用上下键移动，按空格勾选需要登记的应用，按 Enter 保存。已登记的相同路径会更新原记录；Windows 比较路径时不区分大小写。
+
+![选择要登记的应用](docs/images/scan_app_selected.png)
+
+### 2. 扫描站点
+
+选择“扫描站点”。客户端会读取已启用应用的配置，发现站点域名、HTTPS 状态、配置文件和证书路径。扫描结束后，应用表会显示站点数、HTTPS 站点数、已同步数和异常数。
+
+![扫描站点配置](docs/images/scan_sites.png)
+
+### 3. 管理应用和站点
+
+选择“应用管理”后：
+
+- 按 Enter 查看当前应用的站点列表。
+- 按 `d` 删除应用，再按 `y` 确认。删除应用会同时删除关联站点。
+- 在站点列表中按空格启用或禁用站点。
+
+![应用管理](docs/images/site_manage.png)
+
+禁用的站点不会参与证书同步，也不会计入站点和 HTTPS 站点统计。建议禁用测试域名、默认站点或不希望由客户端管理的站点。
+
+![启用或禁用站点](docs/images/site_disable.png)
+
+### 4. 配置 Certd 接口
+
+在主界面选择“Certd接口设置”，填写：
+
+- `BaseURL`：Certd 服务地址，例如 `https://certd.example.com`。
+- `KeyId`、`KeySecret`：Certd 开放接口凭据。
+- 本机名称：可选。填写后会附加到失败通知标题中，便于区分服务器。
+- 最长等待时长：等待证书申请完成的最长时间，默认 10 分钟。
+
+按 Tab 或上下键切换输入框，按 Enter 保存。
+
+![配置 Certd 接口](docs/images/api_setting.png)
+
+
+### 5. 同步证书
+
+选择“同步证书”。客户端只会处理已启用的 HTTPS 站点，执行过程如下：
+
+1. 向 Certd 请求站点域名对应的证书。
+2. 若证书正在申请，按 10 秒间隔持续查询，直到达到设置的最长等待时间。
+3. 比较远端与本地证书有效期。本地证书仍有效时跳过部署。
+4. 远端证书较新时写入证书，并重载 Nginx、Apache 或更新 IIS 绑定。
+5. 验证部署结果，更新应用表中的已同步数和异常数。
+
+![开始同步证书](docs/images/sync_start.png)
+
+![等待证书申请](docs/images/cert_applying.png)
+
+![Certd 自动申请流水线](docs/images/cert_auto_apply.png)
+
+![证书部署完成](docs/images/sync_deploy_success.png)
+
+同步日志会包含应用类型、站点 ID 和域名。同步期间按 Esc 可以取消后续请求、部署和通知操作。
+
+### 6. 启动定时同步
+
+在主界面选择“定时同步”并按 Enter，客户端会退出 TUI 并自动进入 `start` 模式：立即完成一轮站点扫描和证书同步，随后每天在启动时刻再次执行。
+
+
+![定时任务启动](docs/images/start_timer.png)
+
+终端会持续显示扫描、同步、执行总结和下一次执行时间。按 Ctrl+C 可停止定时任务。
+
+![定时任务输出](docs/images/start_page.png)
+
+也可直接通过命令行启动：
+
+```bash
+# 立即执行一次，之后每天在启动时刻执行
+certd-client start
+
+# 每天 02:30 执行
+certd-client start --cron "30 2 * * *"
+```
+
+`--cron` 使用五段 Cron 表达式：`分 时 日 月 周`。
+
+## 日常操作参考
+
+| 操作 | 方法 |
+| --- | --- |
+| 只执行一次扫描和同步 | `certd-client sync` 或 TUI 的“扫描站点”后选择“同步证书” |
+| 持续每日同步 | TUI 的“定时同步”或 `certd-client start` |
+| 修改执行时刻 | 使用 `certd-client start --cron "分 时 日 月 周"` |
+| 查看运行日志 | 终端中按 PageUp/PageDown，或查看 `./logs/client.log` |
+| 查看和禁用站点 | TUI 的“应用管理”，进入站点列表后按空格 |
+| 更新客户端 | 重新执行对应系统的安装命令 |
+
+客户端数据库默认保存在 `./data/certd-client.db`。
+
+## 常见问题
+
+### Windows 提示没有权限或无法读取 IIS、宝塔目录
+
+请关闭当前终端，并以“管理员身份运行”启动 PowerShell 或 Windows Terminal 后再次执行客户端。客户端会在 Windows 上请求 UAC 提权，但受限环境仍可能需要从管理员终端启动。
+
+### 扫描很慢，或日志显示权限不足、目录不存在
+
+扫描大目录需要时间。建议把扫描根目录限定到应用可能所在的磁盘或面板目录。
+
+### 没有扫描到应用或站点
+
+确认应用根目录已经登记且处于启用状态，然后重新执行“扫描站点”。Nginx 会递归解析 `nginx.conf` 中的 `include`；如果配置在非标准位置，请确认它被主配置文件引用。
+
+### 证书一直显示“正在申请中”
+
+客户端会每 10 秒向 Certd 重新查询。请检查 Certd 域名管理中是否已配置域名校验方式、自动化流水线是否可用，以及接口设置中的最长等待时长是否足够。
+
+### 为什么显示“本地证书仍有效，跳过部署”
+
+这是正常行为。只有 Certd 返回的证书有效期晚于本地证书时才会部署，避免无意义的服务重载。
+
+### 同步失败后在哪里看详细原因
+
+查看终端执行日志或 `./logs/client.log`。日志包含应用类型、站点 ID 和域名。若 Certd 已配置默认通知渠道，客户端还会发送失败摘要通知。
+
+### 如何停止定时同步
+
+在运行 `start` 的终端按 Ctrl+C。Linux 服务管理器中运行时，请停止对应服务或发送 `SIGTERM`。
+
+## 联系作者与反馈
+
+- 使用问题、功能建议和缺陷反馈：[GitHub Issues](https://github.com/certd/certd-client/issues)
+- 代码仓库：[certd/certd-client](https://github.com/certd/certd-client)
+- 作者邮箱：[xiaojunnuo@qq.com](mailto:xiaojunnuo@qq.com)
+
+反馈问题时，请提供操作系统、客户端版本、应用类型、站点 ID，以及脱敏后的 `./logs/client.log` 相关片段，便于快速定位。

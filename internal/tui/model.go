@@ -68,10 +68,11 @@ type Model struct {
 	syncing          bool
 	syncProgressCh   chan string
 	syncCancel       context.CancelFunc
+	startRequested   bool
 	width, height    int
 }
 
-var menuItems = []string{"应用扫描", "扫描站点", "应用管理", "Certd接口设置", "同步证书"}
+var menuItems = []string{"应用扫描", "扫描站点", "应用管理", "Certd接口设置", "同步证书", "定时同步"}
 
 func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
 	return NewModelWithSettings(repo, siteRepo, nil, logger, registries...)
@@ -102,6 +103,11 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 
 func (m Model) Init() tea.Cmd {
 	return func() tea.Msg { return appsLoadedMsg{apps: m.loadApps()} }
+}
+
+// StartRequested reports whether the user selected the TUI entry that switches to CLI start mode.
+func (m Model) StartRequested() bool {
+	return m.startRequested
 }
 
 type appsLoadedMsg struct {
@@ -311,7 +317,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = certdSettingsScreen
 			m.status = "请输入 Certd 接口配置，回车保存，Esc 返回"
 			m.appendLog("打开 Certd 接口设置")
-		} else {
+		} else if m.menuCursor == 4 {
 			if m.scanning || m.siteScanning || m.syncing {
 				m.status = "已有任务正在执行"
 				return m, nil
@@ -335,6 +341,10 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("开始同步 %d 个应用的证书", len(activeApps))
 			m.appendLog(m.status)
 			return m, tea.Batch(m.syncCertificatesService(syncContext, activeApps, m.syncProgressCh), syncProgressTick())
+		} else {
+			m.startRequested = true
+			m.appendLog("切换到定时同步模式")
+			return m, tea.Quit
 		}
 	}
 	return m, nil
@@ -886,6 +896,7 @@ func menuHelp(index int) string {
 		"查看、删除应用，或启用和禁用站点",
 		"设置 Certd 地址、授权信息、本机名称和等待时长",
 		"检查 Certd 证书并部署到已启用的 HTTPS 站点",
+		"退出终端界面并启动定时同步任务",
 	}
 	if index < 0 || index >= len(help) {
 		return ""

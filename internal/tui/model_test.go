@@ -154,8 +154,28 @@ func TestStartingAppScanDisablesMissingApplications(t *testing.T) {
 }
 
 func TestMenuIncludesSiteScan(t *testing.T) {
-	if len(menuItems) != 5 || menuItems[1] != "扫描站点" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" {
+	if len(menuItems) != 6 || menuItems[1] != "扫描站点" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
 		t.Fatalf("expected site scan menu item, got %#v", menuItems)
+	}
+	if !strings.Contains(menuHelp(5), "定时") {
+		t.Fatalf("expected scheduled sync help, got %q", menuHelp(5))
+	}
+}
+
+func TestScheduledSyncMenuRequestsStartMode(t *testing.T) {
+	model := Model{menuCursor: 5}
+
+	updated, command := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.StartRequested() {
+		t.Fatal("expected scheduled sync menu to request start mode")
+	}
+	if command == nil {
+		t.Fatal("expected scheduled sync menu to quit the TUI")
+	}
+	if _, ok := command().(tea.QuitMsg); !ok {
+		t.Fatalf("expected TUI quit command, got %#v", command())
 	}
 }
 

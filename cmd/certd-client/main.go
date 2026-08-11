@@ -111,8 +111,18 @@ func run(args []string) error {
 		}
 	}
 	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen())
-	_, err = p.Run()
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	if requested, ok := finalModel.(interface{ StartRequested() bool }); ok && requested.StartRequested() {
+		schedule, expression, err := parseStartSchedule(nil, time.Now())
+		if err != nil {
+			return err
+		}
+		return runStart(schedule, expression, service, repo, settingsRepo, logger)
+	}
+	return nil
 }
 
 func isVersionCommand(args []string) bool {
