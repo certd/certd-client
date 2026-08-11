@@ -7,7 +7,7 @@ import (
 )
 
 // Version is updated by the release script and may be overridden at build time.
-var Version = "0.1.0"
+var Version = "0.2.0"
 
 var semanticVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
 
