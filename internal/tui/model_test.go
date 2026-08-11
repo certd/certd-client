@@ -14,6 +14,7 @@ import (
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
+	"github.com/certd/certd-client/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -230,7 +231,7 @@ func TestRegisteredAppsViewShowsHeadersAndSiteCounts(t *testing.T) {
 	if !strings.Contains(view, "证书管理工具客户端") {
 		t.Fatalf("expected branded title in view:\n%s", view)
 	}
-	for _, text := range []string{"v0.1.0", "已登记应用【HTTPS站点数：1，异常：0】", "ID", "类型", "安装目录", "站点数", "HTTPS站点数", "nginx", "42", "C:\\nginx", "2", "1"} {
+	for _, text := range []string{"v" + version.Version, "已登记应用【HTTPS站点数：1，异常：0】", "ID", "类型", "安装目录", "站点数", "HTTPS站点数", "nginx", "42", "C:\\nginx", "2", "1"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("expected %q in registered apps view:\n%s", text, view)
 		}
@@ -246,7 +247,7 @@ func TestRenderTitleUsesCenteredSingleLineWithoutFillingViewport(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected a single-line title, got %q", title)
 	}
-	for _, expected := range []string{"Certd Client", "证书管理工具客户端", "v0.1.0"} {
+	for _, expected := range []string{"Certd Client", "证书管理工具客户端", "v" + version.Version} {
 		if !strings.Contains(lines[0], expected) {
 			t.Fatalf("expected title line %q in %q", expected, lines[0])
 		}

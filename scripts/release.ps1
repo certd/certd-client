@@ -11,11 +11,28 @@ Set-StrictMode -Version Latest
 function Invoke-GitText {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $output = & git @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw ("git " + ($Arguments -join " ") + " 执行失败：" + ($output -join [Environment]::NewLine))
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = "git"
+    $startInfo.Arguments = (($Arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) -join " ")
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $startInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding($false)
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw "无法启动 git 命令"
     }
-    return (($output -join [Environment]::NewLine).Trim())
+    $output = $process.StandardOutput.ReadToEnd()
+    $errorOutput = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    if ($process.ExitCode -ne 0) {
+        throw ("git " + ($Arguments -join " ") + " 执行失败：" + $errorOutput.Trim())
+    }
+    return $output.Trim()
 }
 
 function Set-Utf8NoBomContent {
@@ -63,6 +80,12 @@ function Get-BumpType {
         return "patch"
     }
     throw "最近的提交中没有 feat、fix 或 perf，无法自动决定版本段"
+}
+
+function Is-ChangelogCommit {
+    param([Parameter(Mandatory = $true)][string]$Commit)
+
+    return $Commit -match '^[^\t]+\t(?:feat|fix|perf)(?:\([^)]*\))?!?:'
 }
 
 function Get-NextVersion {
@@ -130,7 +153,7 @@ try {
     $tag = "v$nextVersion"
     $date = Get-Date -Format "yyyy-MM-dd"
 
-    $entries = @($commitText -split "`n" | Where-Object { $_.Trim() })
+    $entries = @($commitText -split "`n" | Where-Object { $_.Trim() -and (Is-ChangelogCommit $_) })
     $changelogLines = @("## [$nextVersion] - $date", "")
     foreach ($entry in $entries) {
         $parts = $entry -split "`t", 2
