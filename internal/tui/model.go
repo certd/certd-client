@@ -72,7 +72,7 @@ type Model struct {
 	width, height    int
 }
 
-var menuItems = []string{"应用扫描", "扫描站点", "应用管理", "Certd接口设置", "同步证书", "定时同步"}
+var menuItems = []string{"应用扫描", "站点扫描", "应用管理", "Certd接口设置", "同步证书", "定时同步"}
 
 func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
 	return NewModelWithSettings(repo, siteRepo, nil, logger, registries...)

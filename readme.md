@@ -1,10 +1,16 @@
 # Certd Client
 
-Certd Client 是 [Certd](https://github.com/certd/certd) 的本机证书部署客户端。它运行在 Web 服务器上，自动发现 Nginx、Apache 和 IIS 站点，从 Certd 获取新证书并部署到本机。
+Certd Client 是 [Certd](https://github.com/certd/certd) 的证书部署客户端。它运行在你的应用服务器上，自动发现本机服务器上的 Nginx、Apache 和 IIS 站点，然后从 Certd 获取新证书并部署到本机。
 
-适用于不希望开放 SSH、无法由 Certd 直接访问目标服务器，或同时维护多台 Windows/Linux Web 服务器的场景。
+适用于不希望服务器开放SSH、无法由 Certd 直接访问目标服务器，或同时维护多台 Windows/Linux Web 服务器的场景。
 
 ![Certd Client 主界面](docs/images/index2.png)
+
+
+主要做两件事：1. 扫描站点 , 2. 定时同步证书。
+
+## 定时同步证书。
+
 
 ## 能做什么
 
@@ -16,6 +22,9 @@ Certd Client 是 [Certd](https://github.com/certd/certd) 的本机证书部署�
 - 支持手动同步、每日定时同步和命令行自动化。
 - 同步失败时汇总错误，并调用 Certd 默认通知渠道提醒管理员。
 - 所有执行日志会显示在终端，同时写入 `./logs/client.log`。
+
+
+  
 
 ## 支持范围
 
