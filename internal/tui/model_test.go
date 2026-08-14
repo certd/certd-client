@@ -154,7 +154,7 @@ func TestStartingAppScanDisablesMissingApplications(t *testing.T) {
 }
 
 func TestMenuIncludesSiteScan(t *testing.T) {
-	if len(menuItems) != 6 || menuItems[1] != "扫描站点" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
+	if len(menuItems) != 6 || menuItems[1] != "站点扫描" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
 		t.Fatalf("expected site scan menu item, got %#v", menuItems)
 	}
 	if !strings.Contains(menuHelp(5), "定时") {
