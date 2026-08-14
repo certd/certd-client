@@ -13,10 +13,21 @@ if (-not $InstallDir) {
     $InstallDir = if ($inputDir) { $inputDir } else { $defaultDir }
 }
 
-$architecture = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
-    "X64" { "amd64" }
-    "Arm64" { "arm64" }
-    default { throw "不支持的 CPU 架构：$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
+$processorArchitecture = $env:PROCESSOR_ARCHITEW6432
+if (-not $processorArchitecture) {
+    $processorArchitecture = $env:PROCESSOR_ARCHITECTURE
+}
+$architecture = switch -Regex ($processorArchitecture) {
+    "^(AMD64|X64)$" { "amd64" }
+    "^ARM64$" { "arm64" }
+    default {
+        if ([Environment]::Is64BitOperatingSystem) {
+            "amd64"
+        }
+        else {
+            throw "不支持的 CPU 架构：$processorArchitecture"
+        }
+    }
 }
 $asset = "certd-client-windows-$architecture.zip"
 $githubUrl = "https://github.com/$repository/releases/latest/download/$asset"
