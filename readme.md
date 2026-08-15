@@ -9,7 +9,6 @@ Certd Client 是 [Certd](https://github.com/certd/certd) 的证书部署客户�
 
 主要做两件事：1. 扫描站点 , 2. 定时同步证书。
 
-## 定时同步证书。
 
 
 ## 能做什么
@@ -38,7 +37,8 @@ Certd Client 是 [Certd](https://github.com/certd/certd) 的证书部署客户�
 
 ## 安装
 
-### Windows
+### 一键脚本安装
+#### Windows
 
 在 PowerShell 中执行：
 
@@ -48,16 +48,26 @@ irm https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.ps
 
 脚本会提示安装目录。直接回车时，客户端安装到当前目录的 `certd-client` 子目录；再次执行同一命令会更新已有客户端。
 
-### Linux 和 macOS
+#### Linux 和 macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.sh | sh
 ```
 
-### 确认安装
+### 手动安装
 
-```bash
-certd-client version
+1. 前往下载对应系统的二进制文件： https://atomgit.com/certd/certd-client/releases
+2. 解压缩到 `certd-client` 目录（因为运行后会产生`./data`目录存储数据，所以建议放在certd-client目录下）
+3. 运行
+```shell
+# Linux/MacOS
+cd certd-client
+chmod +x certd-client
+./certd-client
+
+# Windows
+cd certd-client
+certd-client.exe  # 或者双击运行
 ```
 
 直接运行 `certd-client` 会打开终端操作界面。Windows 上请在“以管理员身份运行”的终端中执行。
@@ -74,6 +84,7 @@ certd-client version
 
 首次使用按以下顺序操作：扫描应用、扫描站点、确认站点、配置 Certd 接口、同步证书。
 
+> 其实就是顶部菜单从左到右来一遍
 
 ### 1. 扫描应用
 

@@ -28,4 +28,20 @@ if ($content -notmatch "Test-ZipArchive") {
     throw "install.ps1 must fall back when a download is not a valid ZIP archive."
 }
 
+if ($content -notmatch "GetFileName") {
+    throw "install.ps1 must avoid appending certd-client when the current directory already has that name."
+}
+
+if ($content -match "/-/releases/permalink/latest/downloads") {
+    throw "install.ps1 must not use the invalid AtomGit permalink download URL."
+}
+
+if ($content -notmatch "api\.atomgit\.com/api/v5/repos/.*/releases/latest") {
+    throw "install.ps1 must resolve the latest AtomGit release through its API."
+}
+
+if ($content -notmatch "browser_download_url") {
+    throw "install.ps1 must use the AtomGit asset download URL returned by the API."
+}
+
 Write-Host "install.ps1 checks passed"

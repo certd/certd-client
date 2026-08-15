@@ -4,7 +4,7 @@
 
 - 与用户沟通、代码注释、文档、日志和面向用户的界面文案，尽量使用中文。
 - 技术专有名词、代码标识符、第三方库名称和命令可保留英文，以保证准确性与可检索性。
-- 供 `irm ... | iex` 直接执行的 PowerShell 安装脚本必须保存为 UTF-8 无 BOM；BOM 会被管道执行当作脚本首字符，导致 `CmdletBinding` 解析失败。Windows 安装脚本的 CPU 架构检测应优先使用 `PROCESSOR_ARCHITEW6432`、`PROCESSOR_ARCHITECTURE` 等环境变量，不能依赖旧版 .NET 中可能为空的 `RuntimeInformation.OSArchitecture`。安装包候选下载源即使返回 HTTP 200 也必须先校验 ZIP 文件头；校验失败应记录原因并自动尝试下一源。对此保留自动化编码检查。
+- 供 `irm ... | iex` 直接执行的 PowerShell 安装脚本必须保存为 UTF-8 无 BOM；BOM 会被管道执行当作脚本首字符，导致 `CmdletBinding` 解析失败。Windows 安装脚本的 CPU 架构检测应优先使用 `PROCESSOR_ARCHITEW6432`、`PROCESSOR_ARCHITECTURE` 等环境变量，不能依赖旧版 .NET 中可能为空的 `RuntimeInformation.OSArchitecture`。当前目录名已是 `certd-client` 时默认安装目录必须使用当前目录，不能重复追加。AtomGit 附件地址应从最新 Release API 的 `browser_download_url` 获取，不能套用 GitLab 风格的 permalink；候选下载源即使返回 HTTP 200 也必须先校验 ZIP 文件头，校验失败应记录原因并自动尝试下一源。对此保留自动化检查。
 
 ## TDD 开发
 

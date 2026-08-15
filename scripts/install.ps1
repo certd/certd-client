@@ -8,7 +8,13 @@ param(
 $ErrorActionPreference = "Stop"
 $repository = if ($env:CERTD_CLIENT_REPOSITORY) { $env:CERTD_CLIENT_REPOSITORY } else { "certd/certd-client" }
 if (-not $InstallDir) {
-    $defaultDir = Join-Path (Get-Location) "certd-client"
+    $currentDir = (Get-Location).Path
+    $defaultDir = if ([System.IO.Path]::GetFileName($currentDir) -ieq "certd-client") {
+        $currentDir
+    }
+    else {
+        Join-Path $currentDir "certd-client"
+    }
     $inputDir = Read-Host "安装目录（默认：$defaultDir）"
     $InstallDir = if ($inputDir) { $inputDir } else { $defaultDir }
 }
@@ -31,7 +37,21 @@ $architecture = switch -Regex ($processorArchitecture) {
 }
 $asset = "certd-client-windows-$architecture.zip"
 $githubUrl = "https://github.com/$repository/releases/latest/download/$asset"
-$atomGitUrl = "https://atomgit.com/$repository/-/releases/permalink/latest/downloads/$asset"
+$atomGitReleaseApi = "https://api.atomgit.com/api/v5/repos/$repository/releases/latest"
+$atomGitUrl = $null
+try {
+    $atomGitRelease = Invoke-RestMethod -Uri $atomGitReleaseApi -UseBasicParsing
+    $atomGitAsset = $atomGitRelease.assets | Where-Object { $_.name -eq $asset } | Select-Object -First 1
+    if ($atomGitAsset -and $atomGitAsset.browser_download_url) {
+        $atomGitUrl = $atomGitAsset.browser_download_url
+    }
+    elseif ($atomGitRelease.tag_name) {
+        $atomGitUrl = "https://atomgit.com/$repository/releases/download/$($atomGitRelease.tag_name)/$asset"
+    }
+}
+catch {
+    Write-Warning "获取 AtomGit 最新版本失败：$($_.Exception.Message)"
+}
 
 function Measure-Endpoint {
     param([string]$Url)
@@ -68,12 +88,15 @@ function Test-ZipArchive {
 }
 
 $githubTime = Measure-Endpoint $githubUrl
-$atomGitTime = Measure-Endpoint $atomGitUrl
-$sources = @()
-if ($atomGitTime -lt $githubTime) {
+$atomGitTime = if ($atomGitUrl) { Measure-Endpoint $atomGitReleaseApi } else { [double]::PositiveInfinity }
+if ($atomGitUrl -and $atomGitTime -lt $githubTime) {
     $sources = @(@{ Name = "AtomGit"; Url = $atomGitUrl }, @{ Name = "GitHub"; Url = $githubUrl })
-} else {
+}
+elseif ($atomGitUrl) {
     $sources = @(@{ Name = "GitHub"; Url = $githubUrl }, @{ Name = "AtomGit"; Url = $atomGitUrl })
+}
+else {
+    $sources = @(@{ Name = "GitHub"; Url = $githubUrl })
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
