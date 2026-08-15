@@ -20,4 +20,12 @@ if ($content -notmatch "PROCESSOR_ARCHITEW6432") {
     throw "install.ps1 must support architecture detection from 32-bit PowerShell on 64-bit Windows."
 }
 
+if ($content -notmatch "New-Object byte\[\] 2") {
+    throw "install.ps1 must validate downloaded archives before extraction."
+}
+
+if ($content -notmatch "Test-ZipArchive") {
+    throw "install.ps1 must fall back when a download is not a valid ZIP archive."
+}
+
 Write-Host "install.ps1 checks passed"

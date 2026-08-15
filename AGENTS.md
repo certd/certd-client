@@ -4,7 +4,7 @@
 
 - 与用户沟通、代码注释、文档、日志和面向用户的界面文案，尽量使用中文。
 - 技术专有名词、代码标识符、第三方库名称和命令可保留英文，以保证准确性与可检索性。
-- 供 `irm ... | iex` 直接执行的 PowerShell 安装脚本必须保存为 UTF-8 无 BOM；BOM 会被管道执行当作脚本首字符，导致 `CmdletBinding` 解析失败。Windows 安装脚本的 CPU 架构检测应优先使用 `PROCESSOR_ARCHITEW6432`、`PROCESSOR_ARCHITECTURE` 等环境变量，不能依赖旧版 .NET 中可能为空的 `RuntimeInformation.OSArchitecture`。对此保留自动化编码检查。
+- 供 `irm ... | iex` 直接执行的 PowerShell 安装脚本必须保存为 UTF-8 无 BOM；BOM 会被管道执行当作脚本首字符，导致 `CmdletBinding` 解析失败。Windows 安装脚本的 CPU 架构检测应优先使用 `PROCESSOR_ARCHITEW6432`、`PROCESSOR_ARCHITECTURE` 等环境变量，不能依赖旧版 .NET 中可能为空的 `RuntimeInformation.OSArchitecture`。安装包候选下载源即使返回 HTTP 200 也必须先校验 ZIP 文件头；校验失败应记录原因并自动尝试下一源。对此保留自动化编码检查。
 
 ## TDD 开发
 
@@ -37,7 +37,7 @@
 - 请求 Certd 证书接口时必须发送 `autoApply: true` 和 `autoApplyTemplateId: 0`，使用 Certd 默认申请模板。
 - Certd 开放接口错误码：`20000` ApiToken 错误、`20001` ApiToken 签名错误、`20002` ApiToken 时间戳错误、`20003` 不支持的签名类型、`20010` 请求参数错误、`20011` 证书不存在、`20012` 证书还未生成、`20013` 证书正在申请中、`20014` 域名校验方式未配置、`20015` 流水线执行异常、`20021` 用户邮箱未配置。只有连续返回 `20013` 时使用后台长轮询，不得立即报同步失败，轮询间隔为 10 秒；轮询过程中一旦返回其他错误，必须立即失败，不得继续长轮询。最长等待时长由 Certd 接口设置中的分钟数决定，默认 10 分钟。首次或后续发生的其他接口错误最多重试 3 次，重试间隔不得少于 6 秒。
 - 客户端版本统一由 `internal/version.Version` 管理，必须符合 Node.js SemVer；发布标签使用 `vX.Y.Z`，版本号按 Conventional Commits 自动递增，破坏性变更为 major、`feat` 为 minor、`fix` 与 `perf` 为 patch；未出现上述类型时默认升 patch。CHANGELOG 仅记录 `feat`、`fix`、`perf` 类型的提交（包含 scope 与 `!` 标记）。`scripts/release.ps1` 必须在修改版本、提交、打标签和推送之前执行本地 `go test ./...` 与 `go vet ./...`，任一失败即取消发布；首次发布尚无 `v*` 标签时，CHANGELOG 必须包含完整 Git 历史，后续发布仅记录上一版本标签后的提交。发布脚本生成或改写文本文件时必须使用 UTF-8 无 BOM，保证中文 changelog 在跨平台工具中可读；读取 Git 中文历史须显式按 UTF-8 解码，并将标准输出与标准错误分开处理。
-- GitHub 发布流程需先完成跨平台构建并创建 GitHub Release；Release 正文必须提取 `CHANGELOG.md` 中当前版本段的提交条目，不能使用 GitHub 自动生成的 Full Changelog。GitHub push 通过 `atomgit.com` 同步代码，GitHub Release 发布成功后通过 `https://api.atomgit.com/api/v5` 创建同版本 Release；创建请求使用 API 默认发布状态，不能传入 AtomGit 不支持的 `release_status: "published"`。附件先调用 `releases/{tag}/upload_url` 获取签名地址，再按返回的请求头使用 `PUT` 上传。所有 AtomGit 令牌只能通过 GitHub Secret 传入，禁止写入仓库。
+- GitHub 发布流程需先完成跨平台构建并创建 GitHub Release；Release 正文必须提取 `CHANGELOG.md` 中当前版本段的提交条目，不能使用 GitHub 自动生成的 Full Changelog。GitHub push 通过 `atomgit.com` 同步代码，GitHub Release 发布成功后通过 `https://api.atomgit.com/api/v5` 创建同版本 Release；创建请求必须显式传入 AtomGit 支持的 `release_status: "latest"`（预发布使用 `pre`），不能使用 `published` 或依赖服务端默认状态。附件先调用 `releases/{tag}/upload_url` 获取签名地址，再按返回的请求头使用 `PUT` 上传。所有 AtomGit 令牌只能通过 GitHub Secret 传入，禁止写入仓库。
 - 所有 GitHub Actions 工作流必须提供 `workflow_dispatch`，以支持从 GitHub 页面手动触发；手动发布或同步 Release 时应提供可选或必填的版本标签输入，避免误用当前分支名。
 - GitHub 到 AtomGit 的代码同步必须先将 GitHub 分支 fetch 到 `refs/remotes/origin/*`，再显式映射推送至 AtomGit 分支，不能 fetch 到可能已检出的本地分支；AtomGit 作为镜像时可强制更新其分支和标签。
 - 平台专用实现的测试必须仅在对应平台执行；发布工作流的测试矩阵至少覆盖 Linux 与 Windows，避免 Linux CI 漏测 Windows 专用行为。

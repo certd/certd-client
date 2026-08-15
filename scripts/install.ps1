@@ -47,6 +47,26 @@ function Measure-Endpoint {
     }
 }
 
+function Test-ZipArchive {
+    param([string]$Path)
+
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $header = New-Object byte[] 2
+        $read = $stream.Read($header, 0, $header.Length)
+        return $read -eq 2 -and $header[0] -eq 0x50 -and $header[1] -eq 0x4B
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($stream) {
+            $stream.Dispose()
+        }
+    }
+}
+
 $githubTime = Measure-Endpoint $githubUrl
 $atomGitTime = Measure-Endpoint $atomGitUrl
 $sources = @()
@@ -64,6 +84,9 @@ try {
         try {
             Write-Host "从 $($source.Name) 下载 $asset..."
             Invoke-WebRequest -Uri $source.Url -OutFile $archive -UseBasicParsing
+            if (-not (Test-ZipArchive $archive)) {
+                throw "$($source.Name) 返回的下载内容不是有效的 ZIP 文件"
+            }
             $downloaded = $true
             break
         }
