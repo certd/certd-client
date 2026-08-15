@@ -133,6 +133,7 @@ certd-client.exe  # 或者双击运行
 
 ![配置 Certd 接口](docs/images/api_setting.png)
 
+![配置 Certd 接口](docs/images/api_setting_keyid.png)
 
 ### 5. 同步证书
 
