@@ -54,6 +54,10 @@ if ($shellContent -notmatch "api\.atomgit\.com/api/v5/repos/" -or $shellContent 
     throw "install.sh must resolve AtomGit assets through the Release API."
 }
 
+if ($shellContent -notmatch "tr ','") {
+    throw "install.sh must isolate JSON fields before selecting the requested AtomGit asset."
+}
+
 if ($shellContent -notmatch "tar -tzf") {
     throw "install.sh must validate the downloaded tar archive before extraction."
 }

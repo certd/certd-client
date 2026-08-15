@@ -30,6 +30,7 @@ atomgit_url=""
 atomgit_release=$(curl --fail --location --silent --show-error "$atomgit_api_url" 2>/dev/null || true)
 if [ -n "$atomgit_release" ]; then
   atomgit_url=$(printf '%s\n' "$atomgit_release" \
+    | tr ',' '\n' \
     | grep -F '"browser_download_url"' \
     | grep -F "/${asset}\"" \
     | sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
