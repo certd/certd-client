@@ -18,7 +18,7 @@ jobs:
       ATOMGIT_REPOSITORY: ${{ vars.ATOMGIT_REPOSITORY || 'certd/certd-client' }}
       ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: true

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "要发布的版本标签，例如 v0.1.1"
+        description: "要发布的版本标签，可带或不带 v，例如 0.3.1"
         required: true
         type: string
 
@@ -18,6 +18,8 @@ jobs:
   test:
     name: 测试 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && (startsWith(inputs.tag, 'v') && inputs.tag || format('v{0}', inputs.tag)) || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +27,10 @@ jobs:
           - ubuntu-latest
           - windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.23.x"
       - run: go test ./...
@@ -41,6 +45,8 @@ jobs:
     name: ${{ matrix.goos }}-${{ matrix.goarch }}
     needs: test
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && (startsWith(inputs.tag, 'v') && inputs.tag || format('v{0}', inputs.tag)) || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -66,8 +72,10 @@ jobs:
             extension: ""
             archive: tar.gz
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.23.x"
       - name: 构建并压缩
@@ -76,7 +84,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           EXTENSION: ${{ matrix.extension }}
           ARCHIVE: ${{ matrix.archive }}
-          VERSION: ${{ inputs.tag || github.ref_name }}
+          VERSION: ${{ env.RELEASE_TAG }}
         run: |
           VERSION="${VERSION#v}"
           mkdir -p dist
@@ -86,7 +94,7 @@ jobs:
           else
             tar -C dist -czf "dist/certd-client-${GOOS}-${GOARCH}.tar.gz" "certd-client${EXTENSION}"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: certd-client-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/certd-client-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
@@ -96,17 +104,19 @@ jobs:
     name: 创建 GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && (startsWith(inputs.tag, 'v') && inputs.tag || format('v{0}', inputs.tag)) || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v4
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
       - name: 读取发布说明
         env:
-          TAG: ${{ inputs.tag || github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           version="${TAG#v}"
           heading="## [${version}]"
@@ -121,7 +131,6 @@ jobs:
           ' CHANGELOG.md > release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          target_commitish: ${{ github.sha }}
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: release-notes.md
           files: dist/*
