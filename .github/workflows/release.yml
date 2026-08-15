@@ -31,6 +31,11 @@ jobs:
           go-version: "1.23.x"
       - run: go test ./...
       - run: go vet ./...
+      - name: 检查 Linux 安装脚本
+        if: runner.os == 'Linux'
+        run: |
+          sh -n scripts/install.sh
+          sh scripts/install_sh_test.sh
 
   build:
     name: ${{ matrix.goos }}-${{ matrix.goarch }}
