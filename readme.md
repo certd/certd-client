@@ -43,7 +43,7 @@ Certd Client 是 [Certd](https://github.com/certd/certd) 的证书部署客户�
 在 PowerShell 中执行：
 
 ```powershell
-irm https://raw.githubusercontent.com/certd/certd-client/main/scripts/install.ps1 | iex
+irm https://raw.atomgit.com/certd/certd-client/raw/main/scripts/install.ps1 | iex
 ```
 
 脚本会提示安装目录。直接回车时，客户端安装到当前目录的 `certd-client` 子目录；再次执行同一命令会更新已有客户端。
