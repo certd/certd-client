@@ -1,3 +1,8 @@
+## [0.3.0] - 2026-08-15
+
+- fix(tui, install): 修复多个功能缺陷并优化界面显示 (078feb19)
+- fix(scripts): 为install.sh添加逗号转换行处理以正确解析JSON (8047f1b5)
+- feat(tui): add scheduled sync menu entry and support switching to start mode (af2dcd86)
 ## [0.2.2] - 2026-08-11
 
 - perf(github-release): 改用CHANGELOG自定义内容作为发布说明 (6c38773f)
