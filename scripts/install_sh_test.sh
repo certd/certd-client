@@ -15,5 +15,6 @@ printf '%s\n' "$script" | grep -F 'browser_download_url' >/dev/null
 printf '%s\n' "$script" | grep -F 'current_dir="$(pwd)"' >/dev/null
 printf '%s\n' "$script" | grep -F '*/certd-client)' >/dev/null
 printf '%s\n' "$script" | grep -F 'tar -tzf' >/dev/null
+printf '%s\n' "$script" | grep -F 'measure_download "$atomgit_url"' >/dev/null
 
 echo "install.sh checks passed"

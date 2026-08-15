@@ -52,7 +52,7 @@ measure_download() {
 github_time=$(measure_download "$github_url")
 atomgit_time=""
 if [ -n "$atomgit_url" ]; then
-  atomgit_time=$(measure_download "$atomgit_api_url")
+  atomgit_time=$(measure_download "$atomgit_url")
 fi
 primary_url=$github_url
 fallback_url=$atomgit_url

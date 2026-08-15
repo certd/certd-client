@@ -53,9 +53,11 @@ type Model struct {
 	selectCursor     int
 	apps             []storeRepo.TargetApp
 	appManageCursor  int
+	appManageOffset  int
 	managedApp       storeRepo.TargetApp
 	managedSites     []storeRepo.AppSite
 	siteManageCursor int
+	siteManageOffset int
 	logs             []string
 	logScroll        int
 	scanning         bool
@@ -303,6 +305,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.menuCursor == 2 {
 			m.apps = m.loadApps()
 			m.appManageCursor = 0
+			m.appManageOffset = 0
 			m.managedSites = nil
 			m.screen = appManagementScreen
 			m.status = fmt.Sprintf("应用管理：当前已登记 %d 个应用", len(m.apps))
@@ -363,10 +366,12 @@ func (m Model) updateAppManagement(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.appManageCursor > 0 {
 			m.appManageCursor--
+			m.appManageOffset = keepTableCursorVisible(m.appManageCursor, len(m.apps), m.height, m.appManageOffset)
 		}
 	case "down", "j":
 		if m.appManageCursor < len(m.apps)-1 {
 			m.appManageCursor++
+			m.appManageOffset = keepTableCursorVisible(m.appManageCursor, len(m.apps), m.height, m.appManageOffset)
 		}
 	case "enter":
 		if m.repo == nil {
@@ -388,6 +393,7 @@ func (m Model) updateAppManagement(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.managedSites = sites
 		m.siteManageCursor = 0
+		m.siteManageOffset = 0
 		m.screen = siteListScreen
 		m.status = fmt.Sprintf("查看应用站点：%s", m.managedApp.RootDir)
 		m.appendLog(m.status)
@@ -412,10 +418,12 @@ func (m Model) updateSiteList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.siteManageCursor > 0 {
 			m.siteManageCursor--
+			m.siteManageOffset = keepTableCursorVisible(m.siteManageCursor, len(m.managedSites), m.height, m.siteManageOffset)
 		}
 	case "down", "j":
 		if m.siteManageCursor < len(m.managedSites)-1 {
 			m.siteManageCursor++
+			m.siteManageOffset = keepTableCursorVisible(m.siteManageCursor, len(m.managedSites), m.height, m.siteManageOffset)
 		}
 	case " ":
 		if m.siteRepo == nil {
@@ -731,7 +739,7 @@ func (m *Model) scrollLogs(direction int) {
 
 func (m Model) View() string {
 	width := m.width
-	if width < 80 {
+	if width <= 0 {
 		width = 80
 	}
 	menu := make([]string, 0, len(menuItems))
@@ -772,7 +780,9 @@ func (m Model) View() string {
 	case appManagementScreen:
 		rootWidth := applicationRootColumnWidth(width)
 		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}
-		for i, app := range m.apps {
+		start, end := tableWindow(len(m.apps), m.appManageCursor, m.appManageOffset, tableVisibleRows(m.height, len(m.apps)))
+		for i := start; i < end; i++ {
+			app := m.apps[i]
 			cursor := "  "
 			if i == m.appManageCursor {
 				cursor = "> "
@@ -782,11 +792,13 @@ func (m Model) View() string {
 		if len(m.apps) == 0 {
 			rows = append(rows, "暂无已登记应用")
 		}
-		center = "应用管理\n\n回车查看站点 · d 删除应用 · Esc 返回\n\n" + strings.Join(rows, "\n")
+		center = fmt.Sprintf("应用管理\n\n回车查看站点 · d 删除应用 · Esc 返回 · %s\n\n%s", tableWindowLabel(start, end, len(m.apps)), strings.Join(rows, "\n"))
 	case siteListScreen:
 		configWidth := siteConfigColumnWidth(width)
 		rows := []string{siteTableHeader(configWidth), siteTableSeparator(configWidth)}
-		for i, site := range m.managedSites {
+		start, end := tableWindow(len(m.managedSites), m.siteManageCursor, m.siteManageOffset, tableVisibleRows(m.height, len(m.managedSites)))
+		for i := start; i < end; i++ {
+			site := m.managedSites[i]
 			cursor := "  "
 			if i == m.siteManageCursor {
 				cursor = "> "
@@ -812,7 +824,7 @@ func (m Model) View() string {
 		if len(m.managedSites) == 0 {
 			rows = append(rows, "该应用暂无已扫描站点")
 		}
-		center = "站点列表：" + m.managedApp.RootDir + "\n\n上下键选择 · 空格启用/禁用 · Esc 返回\n\n" + strings.Join(rows, "\n")
+		center = fmt.Sprintf("站点列表：%s\n\n上下键选择 · 空格启用/禁用 · Esc 返回 · %s\n\n%s", m.managedApp.RootDir, tableWindowLabel(start, end, len(m.managedSites)), strings.Join(rows, "\n"))
 	case deleteAppConfirmScreen:
 		center = fmt.Sprintf("确认删除应用\n\n%s\n\n该应用及其 %d 个站点记录将被删除。\n\n按 y 确认，按 Esc 取消", m.managedApp.RootDir, m.managedApp.SiteCount)
 	case certdSettingsScreen:
@@ -858,6 +870,7 @@ func (m Model) View() string {
 	if status == "" {
 		status = "←→ 选择菜单 · Enter 确认 · q 退出"
 	}
+	status = singleLine(status)
 	renderLogView := func(lines []string) string {
 		wrappedLines := wrapLogLines(lines, width-8)
 		return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Foreground(lipgloss.Color("244")).Width(width - 5).MaxWidth(width - 3).Render(
@@ -886,7 +899,8 @@ func (m Model) View() string {
 			centerView = renderCenterView(strings.Join(centerLines, "\n"))
 		}
 	}
-	return top + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
+	view := top + "\n" + menuView + "\n" + centerView + "\n" + logView + "\n" + status
+	return fitViewWidth(view, width)
 }
 
 func menuHelp(index int) string {
@@ -1014,6 +1028,78 @@ func applicationSyncStatus(app storeRepo.TargetApp) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(color).Padding(0, 1).Render(icon)
 }
 
+// 计算管理表格可见行数，为标题、操作提示、日志和状态行预留空间。
+func tableVisibleRows(height, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	if height <= 0 {
+		return total
+	}
+	const fixedHeight = 24
+	visible := height - fixedHeight
+	if visible < 1 {
+		visible = 1
+	}
+	if visible > total {
+		visible = total
+	}
+	return visible
+}
+
+func keepTableCursorVisible(cursor, total, height, offset int) int {
+	visible := tableVisibleRows(height, total)
+	return keepTableOffsetVisible(cursor, total, visible, offset)
+}
+
+func keepTableOffsetVisible(cursor, total, visible, offset int) int {
+	if visible <= 0 {
+		return 0
+	}
+	if cursor < offset {
+		offset = cursor
+	}
+	if cursor >= offset+visible {
+		offset = cursor - visible + 1
+	}
+	maxOffset := total - visible
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset
+}
+
+func tableWindow(total, cursor, offset, visible int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if visible <= 0 || visible > total {
+		visible = total
+	}
+	offset = keepTableOffsetVisible(cursor, total, visible, offset)
+	if offset > total-visible {
+		offset = total - visible
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + visible
+	if end > total {
+		end = total
+	}
+	return offset, end
+}
+
+func tableWindowLabel(start, end, total int) string {
+	if total == 0 {
+		return "暂无数据"
+	}
+	return fmt.Sprintf("第 %d-%d/%d 行", start+1, end, total)
+}
+
 func siteTableHeader(configWidth int) string {
 	return strings.Join([]string{
 		"  " + fixedColumn("ID", 6),
@@ -1086,4 +1172,25 @@ func wrapLogLines(lines []string, width int) []string {
 		wrapped = append(wrapped, current.String())
 	}
 	return wrapped
+}
+
+// 外部多行输出会让终端自动换行并破坏增量绘制，因此所有行额外保留最后一列。
+func fitViewWidth(view string, width int) string {
+	maxWidth := width - 1
+	if maxWidth < 1 {
+		maxWidth = 1
+	}
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) >= width {
+			lines[i] = lipgloss.NewStyle().MaxWidth(maxWidth).Render(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func singleLine(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.ReplaceAll(value, "\r", " ")
 }

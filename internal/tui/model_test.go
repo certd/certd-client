@@ -392,6 +392,27 @@ func TestExecutionLogWrapsLongEntriesWithinViewport(t *testing.T) {
 	}
 }
 
+func TestViewConstrainsLongStatusWithinViewport(t *testing.T) {
+	model := Model{width: 80, height: 24, status: strings.Repeat("扫描失败：配置文件路径过长 ", 8)}
+	view := model.View()
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) >= model.width {
+			t.Fatalf("status line exceeds the last terminal column: width=%d line=%q", lipgloss.Width(line), line)
+		}
+	}
+	if lipgloss.Height(view) > model.height {
+		t.Fatalf("long status overflows terminal height: got %d want <= %d", lipgloss.Height(view), model.height)
+	}
+}
+
+func TestViewKeepsMultilineStatusOnOneRenderedLine(t *testing.T) {
+	model := Model{width: 80, height: 24, status: "数据库错误\nSQL 详细信息\n第三行"}
+	view := model.View()
+	if strings.Contains(view, "数据库错误\nSQL 详细信息") {
+		t.Fatalf("status must not inject extra lines into the frame:\n%s", view)
+	}
+}
+
 func TestApplicationTableShowsIDBeforeTypeAndFixedCountColumns(t *testing.T) {
 	rootWidth := 20
 	app := storeRepo.TargetApp{ID: 42, AppType: "nginx", RootDir: `C:\\nginx`, Enabled: true, SiteCount: 1, HttpsSiteCount: 12, SyncedSiteCount: 3, FailedSiteCount: 4}
@@ -413,6 +434,73 @@ func TestSiteListShowsSiteID(t *testing.T) {
 	view := model.View()
 	if !strings.Contains(view, "ID") || !strings.Contains(view, "24") {
 		t.Fatalf("expected site list to display the site ID:\n%s", view)
+	}
+}
+
+func TestSiteListScrollsToKeepSelectedRowVisible(t *testing.T) {
+	sites := make([]storeRepo.AppSite, 20)
+	for i := range sites {
+		sites[i] = storeRepo.AppSite{ID: uint(i + 1), PrimaryDomain: fmt.Sprintf("site-%02d.example.com", i+1), Enabled: true}
+	}
+	model := Model{screen: siteListScreen, width: 120, height: 31, managedSites: sites}
+	for i := 0; i < 12; i++ {
+		updated, _ := model.updateSiteList(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(Model)
+	}
+
+	visible := tableVisibleRows(model.height, len(sites))
+	wantOffset := model.siteManageCursor - visible + 1
+	if model.siteManageCursor != 12 || model.siteManageOffset != wantOffset {
+		t.Fatalf("expected cursor and list offset to follow selection, cursor=%d offset=%d want=%d", model.siteManageCursor, model.siteManageOffset, wantOffset)
+	}
+	view := model.View()
+	if !strings.Contains(view, "site-13.example.com") {
+		t.Fatalf("expected selected site to remain visible after scrolling:\n%s", view)
+	}
+	if strings.Contains(view, "site-01.example.com") {
+		t.Fatalf("expected sites above the visible page to be hidden:\n%s", view)
+	}
+}
+
+func TestApplicationListScrollsToKeepSelectedRowVisible(t *testing.T) {
+	apps := make([]storeRepo.TargetApp, 20)
+	for i := range apps {
+		apps[i] = storeRepo.TargetApp{ID: uint(i + 1), AppType: "nginx", RootDir: fmt.Sprintf("/srv/app-%02d", i+1), Enabled: true}
+	}
+	model := Model{screen: appManagementScreen, width: 120, height: 31, apps: apps}
+	for i := 0; i < 12; i++ {
+		updated, _ := model.updateAppManagement(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(Model)
+	}
+
+	visible := tableVisibleRows(model.height, len(apps))
+	wantOffset := model.appManageCursor - visible + 1
+	if model.appManageCursor != 12 || model.appManageOffset != wantOffset {
+		t.Fatalf("expected cursor and application list offset to follow selection, cursor=%d offset=%d want=%d", model.appManageCursor, model.appManageOffset, wantOffset)
+	}
+	view := model.View()
+	if !strings.Contains(view, "/srv/app-13") {
+		t.Fatalf("expected selected application to remain visible after scrolling:\n%s", view)
+	}
+	if strings.Contains(view, "/srv/app-01") {
+		t.Fatalf("expected applications above the visible page to be hidden:\n%s", view)
+	}
+}
+
+func TestManagementTablesFitTerminalHeightWhileScrolling(t *testing.T) {
+	apps := make([]storeRepo.TargetApp, 20)
+	sites := make([]storeRepo.AppSite, 20)
+	for i := range apps {
+		apps[i] = storeRepo.TargetApp{ID: uint(i + 1), AppType: "nginx", RootDir: fmt.Sprintf("/srv/app-%02d", i+1), Enabled: true}
+		sites[i] = storeRepo.AppSite{ID: uint(i + 1), PrimaryDomain: fmt.Sprintf("site-%02d.example.com", i+1), ConfigPath: "/etc/nginx/sites-enabled/site.conf", Enabled: true}
+	}
+	for _, model := range []Model{
+		{screen: appManagementScreen, width: 120, height: 31, apps: apps, appManageCursor: 12, appManageOffset: 6},
+		{screen: siteListScreen, width: 120, height: 31, managedSites: sites, siteManageCursor: 12, siteManageOffset: 6},
+	} {
+		if got := lipgloss.Height(model.View()); got > model.height {
+			t.Fatalf("management table overflowed terminal: got %d, want <= %d", got, model.height)
+		}
 	}
 }
 
