@@ -27,19 +27,29 @@ jobs:
           - ubuntu-latest
           - windows-latest
     steps:
+      # 使用默认分支的最新校验脚本，验证目标发布标签中的安装脚本。
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          path: release
       - uses: actions/setup-go@v6
         with:
           go-version: "1.23.x"
       - run: go test ./...
+        working-directory: release
       - run: go vet ./...
+        working-directory: release
       - name: 检查 Linux 安装脚本
         if: runner.os == 'Linux'
         run: |
-          sh -n scripts/install.sh
-          sh scripts/install_sh_test.sh
+          sh -n release/scripts/install.sh
+          test_dir=$(mktemp -d)
+          cp scripts/install_sh_test.sh "$test_dir/install_sh_test.sh"
+          cp release/scripts/install.sh "$test_dir/install.sh"
+          sh "$test_dir/install_sh_test.sh"
 
   build:
     name: ${{ matrix.goos }}-${{ matrix.goarch }}
