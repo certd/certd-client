@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet("auto", "major", "minor", "patch")]
     [string]$Bump = "auto",
