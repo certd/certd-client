@@ -2,7 +2,7 @@
 set -eu
 
 repository="${CERTD_CLIENT_REPOSITORY:-certd/certd-client}"
-current_dir=$(pwd)
+current_dir="$(pwd)"
 case "$current_dir" in
   */certd-client) default_dir="$current_dir" ;;
   *) default_dir="$current_dir/certd-client" ;;
