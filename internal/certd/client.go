@@ -35,8 +35,10 @@ const (
 )
 
 type APIError struct {
-	Code    int
-	Message string
+	Code       int
+	Message    string
+	PipelineId int64
+	CertId     int64
 }
 
 func (err *APIError) Error() string {
@@ -60,6 +62,7 @@ type certificateRequest struct {
 	Domains             string `json:"domains"`
 	AutoApply           bool   `json:"autoApply"`
 	AutoApplyTemplateId int    `json:"autoApplyTemplateId"`
+	PipelineId          int64  `json:"pipelineId,omitempty"`
 }
 
 type notificationRequest struct {
@@ -95,13 +98,13 @@ func NewClient(config Config) *Client {
 	}
 }
 
-func (client *Client) GetCertificate(domains []string) (Certificate, error) {
+func (client *Client) GetCertificate(domains []string, pipelineId int64) (Certificate, error) {
 	domains = client.normalizedDomains(domains)
 	if len(domains) == 0 {
 		return Certificate{}, fmt.Errorf("证书域名不能为空")
 	}
 	var response certificateResponse
-	if err := client.post("/api/v1/cert/get", certificateRequest{Domains: strings.Join(domains, ","), AutoApply: true, AutoApplyTemplateId: 0}, &response); err != nil {
+	if err := client.post("/api/v1/cert/get", certificateRequest{Domains: strings.Join(domains, ","), AutoApply: true, AutoApplyTemplateId: 0, PipelineId: pipelineId}, &response); err != nil {
 		return Certificate{}, err
 	}
 	certificate := Certificate{
@@ -161,7 +164,16 @@ func (client *Client) post(path string, payload any, result any) error {
 		return fmt.Errorf("解析 Certd 响应失败: %w", err)
 	}
 	if envelope.Code != 0 {
-		return &APIError{Code: envelope.Code, Message: envelope.Message}
+		apiErr := &APIError{Code: envelope.Code, Message: envelope.Message}
+		var detail struct {
+			PipelineId int64 `json:"pipelineId"`
+			CertId     int64 `json:"certId"`
+		}
+		if len(envelope.Data) > 0 && string(envelope.Data) != "null" && json.Unmarshal(envelope.Data, &detail) == nil {
+			apiErr.PipelineId = detail.PipelineId
+			apiErr.CertId = detail.CertId
+		}
+		return apiErr
 	}
 	if result != nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
 		if err := json.Unmarshal(envelope.Data, result); err != nil {

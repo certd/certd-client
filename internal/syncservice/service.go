@@ -57,7 +57,7 @@ type ProviderRegistry interface {
 }
 
 type CertificateClient interface {
-	GetCertificate(domains []string) (certd.Certificate, error)
+	GetCertificate(domains []string, pipelineId int64) (certd.Certificate, error)
 	SendDefaultNotification(title, content string) error
 }
 
@@ -418,12 +418,13 @@ func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient
 	attempts := pollingAttempts(config.MaxWaitMinutes)
 	maxAttempts := attempts
 	pendingObserved := false
+	pipelineId := int64(0)
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return certd.Certificate{}, err
 		}
-		certificate, err := client.GetCertificate(splitDomains(domains))
+		certificate, err := client.GetCertificate(splitDomains(domains), pipelineId)
 		if err == nil && (certificate.CertificatePEM != "" || certificate.PfxBase64 != "") {
 			if certificate.NotAfter.IsZero() && certificate.CertificatePEM != "" {
 				certificate.NotAfter, _ = certificateExpiryPEM([]byte(certificate.CertificatePEM))
@@ -442,6 +443,9 @@ func (s *Service) fetchCertificate(ctx context.Context, client CertificateClient
 			pending := errors.As(err, &apiErr) && apiErr.Code == certd.ErrCodeOpenCertApplying
 			if pending {
 				pendingObserved = true
+				if apiErr.PipelineId != 0 {
+					pipelineId = apiErr.PipelineId
+				}
 				if attempt+1 < attempts {
 					s.publish(config, fmt.Sprintf("同步中：%s：%v，等待 %d 秒后重新检查（%d/%d）", siteLabel, lastErr, int(pollingInterval/time.Second), attempt+1, attempts-1))
 				}

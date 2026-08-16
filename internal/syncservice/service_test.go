@@ -99,7 +99,7 @@ func TestRunDoesNotRestartWhenLocalCertificateIsStillValid(t *testing.T) {
 
 func TestFetchCertificateRetriesWhileCertificateIsApplying(t *testing.T) {
 	client := &sequenceClient{responses: []certificateResponse{
-		{err: &certd.APIError{Code: certd.ErrCodeOpenCertApplying, Message: "证书正在申请中，请稍后重新获取"}},
+		{err: &certd.APIError{Code: certd.ErrCodeOpenCertApplying, Message: "证书正在申请中，请稍后重新获取", PipelineId: 101, CertId: 202}},
 		{certificate: certd.Certificate{CertificatePEM: "certificate", NotAfter: time.Now().Add(time.Hour)}},
 	}}
 	service := New(&fakeSiteStore{}, app_provider.NewRegistry(), func(certd.Config) CertificateClient { return client })
@@ -110,7 +110,7 @@ func TestFetchCertificateRetriesWhileCertificateIsApplying(t *testing.T) {
 		progress = append(progress, message)
 	}}, "应用[nginx] 站点[Id=1, example.com]")
 
-	if err != nil || client.requests != 2 || certificate.CertificatePEM != "certificate" {
+	if err != nil || client.requests != 2 || certificate.CertificatePEM != "certificate" || len(client.pipelineIds) != 2 || client.pipelineIds[0] != 0 || client.pipelineIds[1] != 101 {
 		t.Fatalf("expected pending certificate to be retried, requests=%d certificate=%#v err=%v", client.requests, certificate, err)
 	}
 	if !strings.Contains(strings.Join(progress, "\n"), "应用[nginx] 站点[Id=1, example.com]") {
@@ -283,7 +283,7 @@ func (s *fakeSiteStore) SyncSites(uint, []storeRepo.AppSite) error {
 
 type fakeCertificateClient struct{}
 
-func (fakeCertificateClient) GetCertificate([]string) (certd.Certificate, error) {
+func (fakeCertificateClient) GetCertificate([]string, int64) (certd.Certificate, error) {
 	return certd.Certificate{CertificatePEM: "certificate", NotAfter: time.Now().Add(24 * time.Hour)}, nil
 }
 
@@ -299,13 +299,15 @@ type certificateResponse struct {
 }
 
 type sequenceClient struct {
-	responses []certificateResponse
-	requests  int
+	responses   []certificateResponse
+	requests    int
+	pipelineIds []int64
 }
 
-func (c *sequenceClient) GetCertificate([]string) (certd.Certificate, error) {
+func (c *sequenceClient) GetCertificate(_ []string, pipelineId int64) (certd.Certificate, error) {
 	response := c.responses[c.requests]
 	c.requests++
+	c.pipelineIds = append(c.pipelineIds, pipelineId)
 	return response.certificate, response.err
 }
 
@@ -313,7 +315,7 @@ func (c *sequenceClient) SendDefaultNotification(string, string) error { return 
 
 type notificationFailClient struct{}
 
-func (notificationFailClient) GetCertificate([]string) (certd.Certificate, error) {
+func (notificationFailClient) GetCertificate([]string, int64) (certd.Certificate, error) {
 	return certd.Certificate{}, errors.New("unexpected certificate request")
 }
 
@@ -333,7 +335,7 @@ func newConcurrentCertificateClient() *concurrentCertificateClient {
 	return &concurrentCertificateClient{started: make(chan struct{}, 4), release: make(chan struct{})}
 }
 
-func (c *concurrentCertificateClient) GetCertificate([]string) (certd.Certificate, error) {
+func (c *concurrentCertificateClient) GetCertificate([]string, int64) (certd.Certificate, error) {
 	c.mu.Lock()
 	c.active++
 	if c.active > c.max {

@@ -15,14 +15,14 @@ import (
 func TestGetCertificateExposesDocumentedAPIErrorCode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"code":20013,"message":"证书正在申请中，请稍后重新获取"}`))
+		_, _ = writer.Write([]byte(`{"code":20013,"message":"证书正在申请中，请稍后重新获取","data":{"pipelineId":101,"certId":202}}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(Config{BaseURL: server.URL, KeyId: "key-id", KeySecret: "key-secret"})
-	_, err := client.GetCertificate([]string{"example.com"})
+	_, err := client.GetCertificate([]string{"example.com"}, 0)
 	var apiErr *APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != 20013 {
+	if !errors.As(err, &apiErr) || apiErr.Code != 20013 || apiErr.PipelineId != 101 || apiErr.CertId != 202 {
 		t.Fatalf("expected API error code 20013, got %#v", err)
 	}
 }
@@ -81,12 +81,32 @@ func TestGetCertificateSendsAutoApplyRequest(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{BaseURL: server.URL, KeyId: "key-id", KeySecret: "key-secret"})
-	certificate, err := client.GetCertificate([]string{"example.com", "www.example.com"})
+	certificate, err := client.GetCertificate([]string{"example.com", "www.example.com"}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if certificate.CertificatePEM != "certificate" || certificate.PrivateKeyPEM != "private-key" || certificate.PfxBase64 != "cGZ4" || !certificate.NotAfter.Equal(time.UnixMilli(1800000000000)) {
 		t.Fatalf("unexpected certificate: %#v", certificate)
+	}
+}
+
+func TestGetCertificateSendsPipelineIdWhenPolling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload certificateRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.PipelineId != 101 || !payload.AutoApply || payload.AutoApplyTemplateId != 0 {
+			t.Fatalf("unexpected polling request: %#v", payload)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"code":0,"data":{"crt":"certificate","detail":{"notAfter":1800000000000}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{BaseURL: server.URL, KeyId: "key-id", KeySecret: "key-secret"})
+	if _, err := client.GetCertificate([]string{"example.com"}, 101); err != nil {
+		t.Fatal(err)
 	}
 }
 
