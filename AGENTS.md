@@ -75,6 +75,8 @@
 - 应用和站点表格的表头与数据行之间必须显示横向分隔线，且分隔线宽度与表格内容区一致。
 - 通过键盘触发的管理操作必须在对应视图中有可见提示，不能依赖用户猜测快捷键。
 - 站点管理列表必须显示站点启用状态，并支持用键盘切换状态。
+- 客户端崩溃必须留痕：未捕获 panic 与 fatal error 必须写入日志文件，不能只打印到 stdout（bubbletea 默认吞掉 panic 只打印到终端，需用 `WithoutCatchPanics` 让主循环 panic 传播到 recover，并用 `debug.SetCrashOutput` 兜底后台 goroutine panic 与 fatal error）。
+- macOS 上 textinput 的 Ctrl+V 剪贴板粘贴会调用 `pbpaste` 子进程，在 TUI raw 模式下可能闪退；macOS 应禁用该绑定，粘贴统一走终端原生 Cmd+V。
 
 ## 规范回顾
 

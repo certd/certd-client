@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -28,6 +29,10 @@ import (
 )
 
 func main() {
+	// 最早配置崩溃输出，保证未捕获 panic 与 fatal error 也写入日志文件。
+	// bubbletea 默认会吞掉 panic 只打印到 stdout（不写文件），所以这里另设兜底。
+	configureCrashOutput()
+
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			reportStartupError(fmt.Sprintf("程序崩溃：%v\n%s", recovered, debug.Stack()))
@@ -52,6 +57,26 @@ func main() {
 		reportStartupError(err.Error())
 		os.Exit(1)
 	}
+}
+
+// configureCrashOutput 让未捕获 panic 和 fatal error 额外写入 logs/client.log。
+// 覆盖范围包括后台 Cmd goroutine（例如 textinput 的剪贴板粘贴）和 runtime fatal error，
+// 这些不在 main 的 recover 覆盖范围内。
+func configureCrashOutput() {
+	logFile, err := openLogFile("logs", "client.log")
+	if err != nil {
+		return
+	}
+	// SetCrashOutput 会复制文件描述符，因此可以立即关闭原文件。
+	_ = debug.SetCrashOutput(logFile, debug.CrashOptions{})
+	_ = logFile.Close()
+}
+
+func openLogFile(logDir, name string) (*os.File, error) {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(logDir, name), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 }
 
 func reportStartupError(message string) {
@@ -110,7 +135,9 @@ func run(args []string) error {
 			return fmt.Errorf("未知命令 %q，可用命令：tui、sync、start、version", args[0])
 		}
 	}
-	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen())
+	// WithoutCatchPanics 让 panic 传播到 main 的 recover，从而写入日志文件；
+	// 否则 bubbletea 会吞掉 panic 只打印到 stdout，logs/client.log 留不下崩溃记录。
+	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen(), tea.WithoutCatchPanics())
 	finalModel, err := p.Run()
 	if err != nil {
 		return err

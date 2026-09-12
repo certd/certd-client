@@ -117,6 +117,24 @@ func TestRegisteredProvidersExcludeIISOutsideWindows(t *testing.T) {
 	}
 }
 
+func TestOpenLogFileCreatesFile(t *testing.T) {
+	logDir := t.TempDir()
+	file, err := openLogFile(logDir, "client.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(logDir, "client.log"))
+	if err != nil {
+		t.Fatalf("log file not created: %v", err)
+	}
+	if len(content) != 0 {
+		t.Fatalf("expected empty log file on first open, got %q", content)
+	}
+}
+
 type capturingLogger struct {
 	lines []string
 }

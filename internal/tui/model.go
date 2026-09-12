@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/version"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -85,6 +87,7 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 	input.Placeholder = "例如 /etc 或 C:\\Web"
 	input.CharLimit = 2048
 	input.Width = 60
+	configureInputForPlatform(&input, runtime.GOOS)
 	var providers *app_provider.Registry
 	if len(registries) > 0 {
 		providers = registries[0]
@@ -95,12 +98,31 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 		certdInputs[i].Placeholder = placeholder
 		certdInputs[i].CharLimit = 2048
 		certdInputs[i].Width = 60
+		configureInputForPlatform(&certdInputs[i], runtime.GOOS)
 	}
 	certdInputs[2].EchoMode = textinput.EchoPassword
 	return Model{
 		repo: repo, siteRepo: siteRepo, settingsRepo: settingsRepo, providers: providers, logger: logger,
 		rootInput: input, certdInputs: certdInputs, selected: make(map[string]bool),
 	}
+}
+
+// configureInputForPlatform 根据平台调整文本输入框的键盘绑定。
+// macOS 上 textinput 把 Ctrl+V 绑定到剪贴板粘贴，粘贴会通过 pbpaste 子进程读取系统剪贴板，
+// 该子进程在 TUI 的 raw 模式下可能导致程序闪退。macOS 终端的 Cmd+V 由终端直接注入文本，
+// 不经过 pbpaste，因此禁用 Ctrl+V，粘贴统一走 Cmd+V。
+func configureInputForPlatform(input *textinput.Model, goos string) {
+	if goos == "darwin" {
+		input.KeyMap.Paste = key.NewBinding(key.WithDisabled())
+	}
+}
+
+// certdSettingsPasteHint 返回粘贴提示；macOS 上 Ctrl+V 已禁用，提示使用 Cmd+V。
+func certdSettingsPasteHint() string {
+	if runtime.GOOS == "darwin" {
+		return " · macOS 请用 Cmd+V 粘贴"
+	}
+	return ""
 }
 
 func (m Model) Init() tea.Cmd {
@@ -828,7 +850,7 @@ func (m Model) View() string {
 	case deleteAppConfirmScreen:
 		center = fmt.Sprintf("确认删除应用\n\n%s\n\n该应用及其 %d 个站点记录将被删除。\n\n按 y 确认，按 Esc 取消", m.managedApp.RootDir, m.managedApp.SiteCount)
 	case certdSettingsScreen:
-		center = "Certd 接口设置\n\nBaseURL\n" + m.certdInputs[0].View() + "\n\nKeyId\n" + m.certdInputs[1].View() + "\n\nKeySecret\n" + m.certdInputs[2].View() + "\n\n本机名称（可选）\n" + m.certdInputs[3].View() + "\n\n最长等待时长（分钟，默认 10）\n" + m.certdInputs[4].View() + "\n\nTab/上下键切换输入框 · Enter 保存 · Esc 返回"
+		center = "Certd 接口设置\n\nBaseURL\n" + m.certdInputs[0].View() + "\n\nKeyId\n" + m.certdInputs[1].View() + "\n\nKeySecret\n" + m.certdInputs[2].View() + "\n\n本机名称（可选）\n" + m.certdInputs[3].View() + "\n\n最长等待时长（分钟，默认 10）\n" + m.certdInputs[4].View() + "\n\nTab/上下键切换输入框 · Enter 保存 · Esc 返回" + certdSettingsPasteHint()
 	default:
 		rootWidth := applicationRootColumnWidth(width)
 		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}

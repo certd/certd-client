@@ -16,6 +16,7 @@ import (
 	"github.com/certd/certd-client/internal/syncservice"
 	"github.com/certd/certd-client/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -752,5 +753,23 @@ func TestCertificateSyncProgressIsWrittenDuringExecution(t *testing.T) {
 	model = updated.(Model)
 	if next == nil || len(model.logs) != 1 || !strings.Contains(model.logs[0], "正在请求 example.com") {
 		t.Fatalf("expected live sync progress log, model=%#v", model)
+	}
+}
+
+func TestConfigureInputForPlatformDisablesPasteOnDarwin(t *testing.T) {
+	input := textinput.New()
+	configureInputForPlatform(&input, "darwin")
+	if input.KeyMap.Paste.Enabled() {
+		t.Fatal("expected Ctrl+V clipboard paste disabled on darwin")
+	}
+}
+
+func TestConfigureInputForPlatformKeepsPasteOnOtherPlatforms(t *testing.T) {
+	for _, goos := range []string{"windows", "linux", "freebsd"} {
+		input := textinput.New()
+		configureInputForPlatform(&input, goos)
+		if !input.KeyMap.Paste.Enabled() {
+			t.Fatalf("expected Ctrl+V clipboard paste enabled on %s", goos)
+		}
 	}
 }
