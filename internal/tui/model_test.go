@@ -1,22 +1,27 @@
 package tui
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/certd/certd-client/internal/app_provider"
 	"github.com/certd/certd-client/internal/app_provider/apache"
 	"github.com/certd/certd-client/internal/app_provider/nginx"
+	"github.com/certd/certd-client/internal/logging"
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
 	"github.com/certd/certd-client/internal/version"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -49,6 +54,47 @@ func TestAppendLogAddsDisplayTime(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^\d{2}:\d{2}:\d{2} 扫描完成$`).MatchString(model.logs[0]) {
 		t.Fatalf("expected a time-prefixed log entry, got %q", model.logs[0])
+	}
+}
+
+func TestAppendLogKeepsCommandDetailInLogFileOnly(t *testing.T) {
+	var logFile bytes.Buffer
+	model := Model{logger: log.New(&logFile, "", 0)}
+	detail := "证书同步失败：应用[iis] 站点[251] aaa.handfree.work 部署失败：值不在预期的范围内。\n" +
+		"    + CategoryInfo          : OperationStopped: (:), ArgumentException\n" +
+		"    + FullyQualifiedErrorId : ValueDoesNotFallWithinTheExpectedRange,Microsoft.PowerShell.Commands.InvokeMethodCommand\n"
+
+	model.appendLog(detail)
+
+	if len(model.logs) != 1 {
+		t.Fatalf("expected one log entry, got %d", len(model.logs))
+	}
+	if !strings.Contains(model.logs[0], "值不在预期的范围内") {
+		t.Fatalf("expected brief error in TUI log, got %q", model.logs[0])
+	}
+	if strings.Contains(model.logs[0], "CategoryInfo") || strings.Contains(model.logs[0], "FullyQualifiedErrorId") {
+		t.Fatalf("expected TUI log to hide PowerShell detail, got %q", model.logs[0])
+	}
+	if !strings.Contains(logFile.String(), "CategoryInfo") || !strings.Contains(logFile.String(), "FullyQualifiedErrorId") {
+		t.Fatalf("expected full error detail in log file, got %q", logFile.String())
+	}
+}
+
+func TestAppendLogTruncatesLongBriefErrorInTui(t *testing.T) {
+	var logFile bytes.Buffer
+	model := Model{logger: log.New(&logFile, "", 0)}
+	fullText := strings.Repeat("证书同步失败：读取配置文件详细错误 ", 40)
+
+	model.appendLog(fullText)
+
+	if !strings.HasSuffix(model.logs[0], "…（详见日志文件）") {
+		t.Fatalf("expected truncated TUI log entry, got %q", model.logs[0])
+	}
+	if utf8.RuneCountInString(model.logs[0]) > logBriefMessageRunes+20 {
+		t.Fatalf("expected short TUI log entry, got %d runes", utf8.RuneCountInString(model.logs[0]))
+	}
+	if !strings.Contains(logFile.String(), fullText) {
+		t.Fatalf("expected untruncated log file entry, got %q", logFile.String())
 	}
 }
 
@@ -155,11 +201,89 @@ func TestStartingAppScanDisablesMissingApplications(t *testing.T) {
 }
 
 func TestMenuIncludesSiteScan(t *testing.T) {
-	if len(menuItems) != 6 || menuItems[1] != "站点扫描" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
+	if len(menuItems) != 7 || menuItems[1] != "站点扫描" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
 		t.Fatalf("expected site scan menu item, got %#v", menuItems)
 	}
 	if !strings.Contains(menuHelp(5), "定时") {
 		t.Fatalf("expected scheduled sync help, got %q", menuHelp(5))
+	}
+}
+
+func TestMenuIncludesOpenLogFile(t *testing.T) {
+	if menuItems[openLogMenuIndex] != "打开日志" {
+		t.Fatalf("expected open log menu item, got %#v", menuItems)
+	}
+	if !strings.Contains(menuHelp(openLogMenuIndex), "日志") || !strings.Contains(menuHelp(openLogMenuIndex), "client.log") {
+		t.Fatalf("expected open log help, got %q", menuHelp(openLogMenuIndex))
+	}
+}
+
+func TestOpenLogMenuOpensLogFile(t *testing.T) {
+	opened := ""
+	model := Model{menuCursor: openLogMenuIndex, openLog: func(path string) error {
+		opened = path
+		return nil
+	}}
+
+	updated, command := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("expected open log command")
+	}
+	if model.StartRequested() {
+		t.Fatal("expected open log menu to keep the TUI running")
+	}
+	message := command()
+	openedMessage, ok := message.(logOpenedMsg)
+	if !ok {
+		t.Fatalf("expected log opened message, got %#v", message)
+	}
+	if openedMessage.err != nil || opened != logging.DefaultPath() {
+		t.Fatalf("unexpected opened log file: path=%q err=%v", opened, openedMessage.err)
+	}
+
+	updated, _ = model.Update(openedMessage)
+	model = updated.(Model)
+	if !strings.Contains(model.status, "已打开日志文件") || !strings.Contains(model.status, logging.DefaultPath()) {
+		t.Fatalf("expected open log status, got %q", model.status)
+	}
+	if !strings.Contains(strings.Join(model.logs, "\n"), logging.DefaultPath()) {
+		t.Fatalf("expected open log entry in logs, got %#v", model.logs)
+	}
+}
+
+func TestOpenLogMenuReportsFailure(t *testing.T) {
+	model := Model{menuCursor: openLogMenuIndex, openLog: func(string) error {
+		return errors.New("拒绝访问")
+	}}
+
+	updated, command := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("expected open log command")
+	}
+
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if !strings.Contains(model.status, "打开日志文件失败") || !strings.Contains(model.status, "拒绝访问") {
+		t.Fatalf("expected open log failure status, got %q", model.status)
+	}
+	if !strings.Contains(strings.Join(model.logs, "\n"), "拒绝访问") {
+		t.Fatalf("expected open log failure entry in logs, got %#v", model.logs)
+	}
+}
+
+// 同步或扫描进行中最需要查看日志，打开日志不能受“已有任务正在执行”限制。
+func TestOpenLogMenuStaysAvailableWhileTaskRunning(t *testing.T) {
+	model := Model{menuCursor: openLogMenuIndex, syncing: true, openLog: func(string) error { return nil }}
+
+	updated, command := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("expected open log command while synchronizing")
+	}
+	if model.status == "已有任务正在执行" {
+		t.Fatalf("expected open log to bypass running task guard, got %q", model.status)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
+	"github.com/certd/certd-client/internal/logging"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/version"
 	"github.com/charmbracelet/bubbles/key"
@@ -73,10 +74,14 @@ type Model struct {
 	syncProgressCh   chan string
 	syncCancel       context.CancelFunc
 	startRequested   bool
+	openLog          func(path string) error
 	width, height    int
 }
 
-var menuItems = []string{"应用扫描", "站点扫描", "应用管理", "Certd接口设置", "同步证书", "定时同步"}
+var menuItems = []string{"应用扫描", "站点扫描", "应用管理", "Certd接口设置", "同步证书", "定时同步", "打开日志"}
+
+// openLogMenuIndex 是“打开日志”菜单项下标，用于把日志查看从耗时的同步任务限制中独立出来。
+const openLogMenuIndex = 6
 
 func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
 	return NewModelWithSettings(repo, siteRepo, nil, logger, registries...)
@@ -167,6 +172,23 @@ type certificateSyncCompletedMsg struct {
 
 type syncProgressTickMsg struct{}
 
+type logOpenedMsg struct {
+	path string
+	err  error
+}
+
+// openLogCommand 在后台用系统默认程序打开日志文件，失败原因回传到界面并写入日志。
+func (m Model) openLogCommand() tea.Cmd {
+	path := logging.DefaultPath()
+	open := m.openLog
+	if open == nil {
+		open = openLogFileWithSystemViewer
+	}
+	return func() tea.Msg {
+		return logOpenedMsg{path: path, err: open(path)}
+	}
+}
+
 func (m Model) loadApps() []storeRepo.TargetApp {
 	if m.repo == nil {
 		return nil
@@ -236,6 +258,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, item := range msg.result.Errors {
 			m.appendLog("证书同步失败：" + item)
 		}
+	case logOpenedMsg:
+		if msg.err != nil {
+			m.status = "打开日志文件失败：" + msg.err.Error()
+		} else {
+			m.status = "已打开日志文件：" + msg.path
+		}
+		m.appendLog(m.status)
 	case syncProgressTickMsg:
 		if !m.syncing {
 			return m, nil
@@ -293,6 +322,12 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuCursor++
 		}
 	case "enter", " ":
+		// 打开日志不受“已有任务正在执行”限制：同步失败时正是最需要查看日志的时刻。
+		if m.menuCursor == openLogMenuIndex {
+			m.status = "正在打开日志文件：" + logging.DefaultPath()
+			m.appendLog(m.status)
+			return m, m.openLogCommand()
+		}
 		if m.scanning || m.siteScanning || m.syncing {
 			m.status = "已有任务正在执行"
 			return m, nil
@@ -366,7 +401,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("开始同步 %d 个应用的证书", len(activeApps))
 			m.appendLog(m.status)
 			return m, tea.Batch(m.syncCertificatesService(syncContext, activeApps, m.syncProgressCh), syncProgressTick())
-		} else {
+		} else if m.menuCursor == 5 {
 			m.startRequested = true
 			m.appendLog("切换到定时同步模式")
 			return m, tea.Quit
@@ -734,8 +769,26 @@ func (m Model) updateSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// logBriefMessageRunes 限制界面日志单条的字符数，避免长错误占满日志区域。
+const logBriefMessageRunes = 100
+
+// briefLogMessage 生成界面显示用的简要信息：只保留首行并限制长度。
+// 命令输出的详细堆栈写入日志文件，界面仅提示查看日志，避免多行输出打乱布局。
+func briefLogMessage(message string) string {
+	firstLine := strings.TrimSpace(strings.Split(message, "\n")[0])
+	runes := []rune(firstLine)
+	switch {
+	case len(runes) > logBriefMessageRunes:
+		return string(runes[:logBriefMessageRunes]) + "…（详见日志文件）"
+	case firstLine != strings.TrimSpace(message):
+		return firstLine + "…（详见日志文件）"
+	default:
+		return firstLine
+	}
+}
+
 func (m *Model) appendLog(message string) {
-	m.logs = append(m.logs, time.Now().Format("15:04:05")+" "+message)
+	m.logs = append(m.logs, time.Now().Format("15:04:05")+" "+briefLogMessage(message))
 	m.logScroll = 0
 	if len(m.logs) > 100 {
 		m.logs = m.logs[len(m.logs)-100:]
@@ -933,6 +986,7 @@ func menuHelp(index int) string {
 		"设置 Certd 地址、授权信息、本机名称和等待时长",
 		"检查 Certd 证书并部署到已启用的 HTTPS 站点",
 		"退出终端界面并启动定时同步任务",
+		"用系统默认程序打开日志文件 logs/client.log，查看详细错误",
 	}
 	if index < 0 || index >= len(help) {
 		return ""

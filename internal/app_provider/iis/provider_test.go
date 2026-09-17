@@ -3,16 +3,33 @@ package iis
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/certd/certd-client/internal/app_provider"
 	"github.com/certd/certd-client/internal/certd"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
+
+// Windows 命令输出是 GBK 编码，测试数据必须按平台还原真实字节。
+func commandOutput(t *testing.T, text string) []byte {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return []byte(text)
+	}
+	encoded, err := simplifiedchinese.GBK.NewEncoder().Bytes([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
 
 func TestIisProviderImplementsProvider(t *testing.T) {
 	var provider app_provider.Provider = IisProvider{}
@@ -235,8 +252,172 @@ func TestDeployCertificateImportsPfxAndUpdatesHttpsBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate") || !strings.Contains(commands[1], "ForEach-Object") || !strings.Contains(commands[1], "ABC123") {
+	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate($cert.Thumbprint,'My')") || !strings.Contains(commands[1], "foreach ($binding in") || !strings.Contains(commands[1], "ABC123") {
 		t.Fatalf("unexpected IIS deployment commands: %#v", commands)
+	}
+	// IIS 原生配置方法（rscaext.xml）的 certificateHash 参数是字符串，
+	// 传 GetCertHash() 得到的 byte[] 会让原生方法统一报“值不在预期的范围内”。
+	if strings.Contains(commands[1], "AddSslCertificate($hash") {
+		t.Fatalf("证书哈希必须传十六进制字符串，不能传 byte[]: %#v", commands)
+	}
+}
+
+// 绑定更新后必须回读绑定证书哈希并与目标指纹比较：
+// AddSslCertificate 的失败可能是非终止错误，不回读校验会出现“绑定未更新却报告成功”。
+func TestDeployCertificateBindingScriptVerifiesCertificateAfterUpdate(t *testing.T) {
+	scripts := make([]string, 0, 2)
+	provider := IisProvider{
+		runCommand: func(name string, args ...string) ([]byte, error) {
+			scripts = append(scripts, args[len(args)-1])
+			if len(scripts) == 1 {
+				return []byte("ABC123\r\n"), nil
+			}
+			return nil, nil
+		},
+	}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) != 2 {
+		t.Fatalf("expected two PowerShell scripts: %#v", scripts)
+	}
+	for _, expected := range []string{"$currentHash", "绑定证书未生效"} {
+		if !strings.Contains(scripts[1], expected) {
+			t.Fatalf("expected %s in binding script: %s", expected, scripts[1])
+		}
+	}
+}
+
+// 绑定脚本由多段字符串拼成，语法错误只会在用户机器上才暴露，交付前必须用 PowerShell 解析器校验。
+func TestDeployCertificateBindingScriptIsValidPowerShell(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows 需要校验 PowerShell 脚本")
+	}
+	powerShellPath, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Skipf("未找到 powershell.exe: %v", err)
+	}
+	scripts := make([]string, 0, 2)
+	provider := IisProvider{runCommand: func(name string, args ...string) ([]byte, error) {
+		scripts = append(scripts, args[len(args)-1])
+		if len(scripts) == 1 {
+			return []byte("ABC123\r\n"), nil
+		}
+		return nil, nil
+	}}
+
+	if err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for index, script := range scripts {
+		// PowerShell 5.1 读取无 BOM 的 .ps1 会按 ANSI 解码，中文可能破坏字符串边界，必须写入 BOM。
+		scriptPath := filepath.Join(t.TempDir(), fmt.Sprintf("certd-script-%d.ps1", index))
+		if err := os.WriteFile(scriptPath, append([]byte{0xEF, 0xBB, 0xBF}, script...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		checked, err := exec.Command(powerShellPath, "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf("$errors=$null; [System.Management.Automation.Language.Parser]::ParseFile('%s',[ref]$null,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | ForEach-Object { '语法错误: ' + $_.Message } } else { 'OK' }", strings.ReplaceAll(scriptPath, "'", "''"))).CombinedOutput()
+		if err != nil {
+			t.Fatalf("校验 PowerShell 脚本语法失败: %v: %s", err, checked)
+		}
+		if output := strings.TrimSpace(app_provider.DecodeCommandOutput(checked)); output != "OK" {
+			t.Fatalf("PowerShell 脚本存在语法错误: %s\n%s", output, script)
+		}
+	}
+}
+
+// 绑定脚本必须逐个绑定捕获异常并汇总，否则 PowerShell 的非终止错误会让部署假装成功。
+func TestDeployCertificateBindingScriptReportsPerBindingFailure(t *testing.T) {
+	scripts := make([]string, 0, 2)
+	provider := IisProvider{
+		runCommand: func(name string, args ...string) ([]byte, error) {
+			if name != "powershell.exe" {
+				t.Fatalf("unexpected command: %s %v", name, args)
+			}
+			scripts = append(scripts, args[len(args)-1])
+			if len(scripts) == 1 {
+				return []byte("ABC123\r\n"), nil
+			}
+			return nil, nil
+		},
+	}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) != 2 || !strings.Contains(scripts[1], "catch") || !strings.Contains(scripts[1], "throw") || !strings.Contains(scripts[1], "bindingInformation") {
+		t.Fatalf("expected per-binding failure reporting in binding script: %#v", scripts)
+	}
+}
+
+func TestDeployCertificateIncludesImportFailureOutput(t *testing.T) {
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		return commandOutput(t, "Import : 拒绝访问。\r\n"), errors.New("exit status 1")
+	}}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err == nil || !strings.Contains(err.Error(), "读取 IIS 证书指纹失败") || !strings.Contains(err.Error(), "拒绝访问") || !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("expected import output in error, got %v", err)
+	}
+}
+
+func TestDeployCertificateReportsMissingThumbprint(t *testing.T) {
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		return []byte(" \r\n"), nil
+	}}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err == nil || !strings.Contains(err.Error(), "IIS 证书指纹为空") {
+		t.Fatalf("expected missing thumbprint error, got %v", err)
+	}
+}
+
+func TestDeployCertificateIncludesBindingFailureOutput(t *testing.T) {
+	calls := 0
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return []byte("ABC123\r\n"), nil
+		}
+		return commandOutput(t, "绑定 *:443:example.com => 找不到方法 AddSslCertificate\r\n"), errors.New("exit status 1")
+	}}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err == nil || !strings.Contains(err.Error(), "更新 IIS HTTPS 绑定失败") || !strings.Contains(err.Error(), "找不到方法 AddSslCertificate") || !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("expected binding output in error, got %v", err)
+	}
+}
+
+// 绑定失败时需要把绑定的 SSL 标志、旧证书状态和证书私钥状态写入日志，
+// 便于区分绑定残留无效证书与证书导入失败，两者都会报“值不在预期的范围内”。
+func TestDeployCertificateBindingScriptIncludesBindingDiagnostics(t *testing.T) {
+	scripts := make([]string, 0, 2)
+	provider := IisProvider{
+		runCommand: func(name string, args ...string) ([]byte, error) {
+			if name != "powershell.exe" {
+				t.Fatalf("unexpected command: %s %v", name, args)
+			}
+			scripts = append(scripts, args[len(args)-1])
+			if len(scripts) == 1 {
+				return []byte("ABC123\r\n"), nil
+			}
+			return nil, nil
+		},
+	}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) != 2 {
+		t.Fatalf("expected two PowerShell scripts: %#v", scripts)
+	}
+	for _, expected := range []string{"sslFlags", "HasPrivateKey", "CertificateHash", "CertificateStoreName", "RemoveSslCertificate"} {
+		if !strings.Contains(scripts[1], expected) {
+			t.Fatalf("expected %s in binding script: %s", expected, scripts[1])
+		}
 	}
 }
 
@@ -271,7 +452,7 @@ func TestLocalCertificateExpirySupportsStringCertificateHash(t *testing.T) {
 
 func TestLocalCertificateExpiryIncludesCommandOutputOnFailure(t *testing.T) {
 	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
-		return []byte("绑定不存在\r\n"), errors.New("exit status 1")
+		return commandOutput(t, "绑定不存在\r\n"), errors.New("exit status 1")
 	}}
 	_, err := provider.LocalCertificateExpiry(app_provider.Site{DeploymentName: "Example"})
 	if err == nil || !strings.Contains(err.Error(), "绑定不存在") {
@@ -287,5 +468,37 @@ func TestRestartRunsIisReset(t *testing.T) {
 	}}
 	if err := provider.Restart(app_provider.App{AppType: "iis"}); err != nil || !called {
 		t.Fatalf("expected iisreset command, called=%v err=%v", called, err)
+	}
+}
+
+func TestRestartIncludesCommandOutputOnFailure(t *testing.T) {
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		return commandOutput(t, "尝试停止 IIS 服务失败，拒绝访问。\r\n"), errors.New("exit status 5")
+	}}
+	err := provider.Restart(app_provider.App{AppType: "iis"})
+	if err == nil || !strings.Contains(err.Error(), "重启 IIS 失败") || !strings.Contains(err.Error(), "拒绝访问") || !strings.Contains(err.Error(), "exit status 5") {
+		t.Fatalf("expected restart output in error, got %v", err)
+	}
+}
+
+func TestDeployCertificateDecodesWindowsGbkBindingOutput(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows 命令输出使用 GBK 解码")
+	}
+	calls := 0
+	provider := IisProvider{runCommand: func(string, ...string) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return []byte("ABC123\r\n"), nil
+		}
+		return commandOutput(t, "HTTPS 绑定证书更新失败：*:5443:aaa.handfree.work => 值不在预期的范围内。\r\n"), errors.New("exit status 1")
+	}}
+
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "aaa.handfree.work", DeploymentName: "aaa.handfree.work"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Now()})
+	if err == nil || !strings.Contains(err.Error(), "更新 IIS HTTPS 绑定失败") || !strings.Contains(err.Error(), "值不在预期的范围内") {
+		t.Fatalf("expected decoded GBK binding error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "\ufffd") {
+		t.Fatalf("expected readable Chinese in binding error, got %v", err)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/certd/certd-client/internal/app_provider/apache"
 	"github.com/certd/certd-client/internal/app_provider/iis"
 	"github.com/certd/certd-client/internal/app_provider/nginx"
+	"github.com/certd/certd-client/internal/clientreport"
 	"github.com/certd/certd-client/internal/elevation"
 	"github.com/certd/certd-client/internal/logging"
 	"github.com/certd/certd-client/internal/store"
@@ -63,7 +64,7 @@ func main() {
 // 覆盖范围包括后台 Cmd goroutine（例如 textinput 的剪贴板粘贴）和 runtime fatal error，
 // 这些不在 main 的 recover 覆盖范围内。
 func configureCrashOutput() {
-	logFile, err := openLogFile("logs", "client.log")
+	logFile, err := openLogFile(logging.DefaultDir, logging.DefaultFileName)
 	if err != nil {
 		return
 	}
@@ -81,7 +82,7 @@ func openLogFile(logDir, name string) (*os.File, error) {
 
 func reportStartupError(message string) {
 	fmt.Fprintln(os.Stderr, message)
-	writeStartupError("logs", message)
+	writeStartupError(logging.DefaultDir, message)
 }
 
 func writeStartupError(logDir, message string) {
@@ -104,7 +105,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	logger, closer, err := logging.New("logs")
+	logger, closer, err := logging.New(logging.DefaultDir)
 	if err != nil {
 		return fmt.Errorf("open log: %w", err)
 	}
@@ -115,19 +116,23 @@ func run(args []string) error {
 	settingsRepo := storeRepo.NewSettingsRepository(db)
 	providers := registeredProviders(runtime.GOOS)
 	service := syncservice.New(siteRepo, providers, nil)
+	reporter := clientreport.New(settingsRepo, repo, func(format string, args ...any) {
+		logger.Printf(format, args...)
+	})
 	if len(args) > 0 && args[0] != "tui" {
 		switch strings.ToLower(args[0]) {
 		case "sync":
 			output := newConsoleAndLogOutput(logger, func(values ...any) { fmt.Println(values...) })
 			result := service.RunConfigured(context.Background(), repo, settingsRepo, func(message string) { output(message) })
 			writeSyncSummary(output, result)
+			reporter.Report(context.Background())
 			return syncResultError(result)
 		case "start":
 			schedule, expression, err := parseStartSchedule(args[1:], time.Now())
 			if err != nil {
 				return err
 			}
-			return runStart(schedule, expression, service, repo, settingsRepo, logger)
+			return runStart(schedule, expression, service, repo, settingsRepo, logger, reporter)
 		case "version":
 			fmt.Println(versionMessage())
 			return nil
@@ -135,20 +140,27 @@ func run(args []string) error {
 			return fmt.Errorf("未知命令 %q，可用命令：tui、sync、start、version", args[0])
 		}
 	}
+	// TUI 运行期间同样周期上报心跳，保证打开界面时也算在线。
+	heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
+	go reporter.Run(heartbeatCtx)
+
 	// WithoutCatchPanics 让 panic 传播到 main 的 recover，从而写入日志文件；
 	// 否则 bubbletea 会吞掉 panic 只打印到 stdout，logs/client.log 留不下崩溃记录。
 	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen(), tea.WithoutCatchPanics())
 	finalModel, err := p.Run()
 	if err != nil {
+		heartbeatCancel()
 		return err
 	}
 	if requested, ok := finalModel.(interface{ StartRequested() bool }); ok && requested.StartRequested() {
+		heartbeatCancel()
 		schedule, expression, err := parseStartSchedule(nil, time.Now())
 		if err != nil {
 			return err
 		}
-		return runStart(schedule, expression, service, repo, settingsRepo, logger)
+		return runStart(schedule, expression, service, repo, settingsRepo, logger, reporter)
 	}
+	heartbeatCancel()
 	return nil
 }
 
@@ -181,9 +193,10 @@ func parseStartSchedule(args []string, now time.Time) (cron.Schedule, string, er
 	return schedule, expression, nil
 }
 
-func runStart(schedule cron.Schedule, expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger interface{ Println(...any) }) error {
+func runStart(schedule cron.Schedule, expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger interface{ Println(...any) }, reporter *clientreport.Reporter) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go reporter.Run(ctx)
 	output := newConsoleAndLogOutput(logger, func(values ...any) { fmt.Println(values...) })
 	run := func() {
 		result := service.RunConfigured(ctx, apps, settings, func(message string) { output(message) })

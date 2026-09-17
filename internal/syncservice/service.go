@@ -599,7 +599,7 @@ func SiteLabel(app storeRepo.TargetApp, site storeRepo.AppSite) string {
 }
 
 func NotificationTitle(machine string, failureCount int) string {
-	return fmt.Sprintf("【Certd Client】 证书同步失败【数量：%d】（%s）", failureCount, machineName(machine))
+	return fmt.Sprintf("证书同步失败【数量：%d】（%s） 【来自CertdClient】", failureCount, machineName(machine))
 }
 
 func toProviderSite(site storeRepo.AppSite) app_provider.Site {

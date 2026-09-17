@@ -71,6 +71,25 @@ type notificationRequest struct {
 	NotificationType string `json:"notificationType"`
 }
 
+// HeartbeatPayload 是客户端心跳上报内容，服务端据此判断在线状态并记录站点统计。
+type HeartbeatPayload struct {
+	ClientId        string `json:"clientId"`
+	MachineName     string `json:"machineName"`
+	Version         string `json:"version"`
+	Os              string `json:"os"`
+	AppCount        int    `json:"appCount"`
+	SiteCount       int    `json:"siteCount"`
+	HttpsSiteCount  int    `json:"httpsSiteCount"`
+	SyncedSiteCount int    `json:"syncedSiteCount"`
+	FailedSiteCount int    `json:"failedSiteCount"`
+	LastSyncAt      int64  `json:"lastSyncAt,omitempty"`
+	LastSyncStatus  string `json:"lastSyncStatus,omitempty"`
+}
+
+type heartbeatResponse struct {
+	Success bool `json:"success"`
+}
+
 type certificateResponse struct {
 	Crt    string `json:"crt"`
 	Key    string `json:"key"`
@@ -127,6 +146,12 @@ func (client *Client) SendDefaultNotification(title, content string) error {
 		Content:          content,
 		NotificationType: "certDeployError",
 	}, nil)
+}
+
+// Heartbeat 上报客户端心跳与站点统计。
+func (client *Client) Heartbeat(payload HeartbeatPayload) error {
+	var response heartbeatResponse
+	return client.post("/api/v1/client/heartbeat", payload, &response)
 }
 
 func (client *Client) post(path string, payload any, result any) error {

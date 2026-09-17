@@ -23,10 +23,13 @@
 - 应用发现遍历必须跳过 `docker/overlay2` 及其子目录，避免将容器文件系统层误识别为宿主机应用安装目录。
 - IIS Provider 不递归扫描用户输入目录；通过执行 `appcmd list site` 确认 IIS 安装，并以 `inetsrv` 为应用根目录，站点配置从 `config/applicationHost.config` 解析。
 - IIS 证书部署不写入 PEM 文件路径；应将 Certd 返回的 PFX 通过 PowerShell 导入 `LocalMachine\My` 证书存储，FriendlyName 使用主域名和证书到期时间，再用 `WebAdministration` 按 IIS 站点名称更新全部 HTTPS 绑定，并验证全部绑定使用的新证书有效期。
-- Windows 上的 Apache Provider 应先按可执行文件路径定位对应服务；找到服务时使用 `net stop <服务名>`、`net start <服务名>` 重启，兼容宝塔注册的 `apache` 服务；未找到服务时才使用带 `-f` 配置文件路径的 `httpd -k graceful` 重载。Windows 命令输出按 GBK 解码后再写入日志和错误信息。
+- 更新 IIS HTTPS 绑定时必须给 `AddSslCertificate` 传证书指纹的十六进制字符串（`(Get-Item Cert:\LocalMachine\My\<指纹>).Thumbprint`），不能传 `GetCertHash()` 得到的 `byte[]`：`WebAdministration` 绑定对象暴露的是 IIS 原生配置方法，其 `certificateHash` 参数在 `inetsrv\config\schema\rscaext.xml` 中声明为 `string`，传 `byte[]` 会让原生方法统一报“值不在预期的范围内”；.NET 的 `Binding.AddSslCertificate(Byte[], String)` 是 internal 方法，PowerShell 无法调用，其实现同样是先转成十六进制字符串再调用同一个原生方法。绑定脚本必须逐个绑定 `try/catch` 汇总失败原因（含 `bindingInformation`）并在任一失败时 `throw`，不能使用裸管道，否则 `AddSslCertificate` 的非终止错误会让脚本以 0 退出，出现绑定未更新却报告部署成功的情况；更新后还必须重新 `Get-WebBinding` 回读绑定的 `CertificateHash` 并与目标指纹比较，不一致时计入失败，保证“报告成功即绑定已生效”。失败记录还必须带上绑定的 `sslFlags`、旧证书状态（`CertificateHash`/`CertificateStoreName` 能否在证书存储中解析）和新证书 `HasPrivateKey`，便于按绑定定位原因。旧证书已丢失或读取失败时必须先 `RemoveSslCertificate()` 清除残留 SSL 绑定再重新 `AddSslCertificate`，这类绑定本身已无法提供 HTTPS，残留的失效哈希会让重新绑定持续失败。绑定脚本这类多段拼接的 PowerShell 必须用 PowerShell 解析器做语法校验（平台测试 `TestDeployCertificateBindingScriptIsValidPowerShell`），避免语法错误只在用户机器上暴露。
+- 执行外部命令失败时，返回的错误与日志必须带上完整标准输出和标准错误（含退出码），不能只返回 `exit status 1` 之类的泛化文本；Windows 上无法本地复现的部署问题尤其依赖该输出定位。
+- Windows 上所有 Provider 执行外部命令后，必须用 `internal/app_provider` 的 `DecodeCommandOutput` 解码输出再写入日志和错误信息；Windows 命令输出的编码跟随控制台代码页（中文控制台为 GBK，UTF-8 代码页为 UTF-8），该函数先按 UTF-8 校验、校验失败再按 GBK 解码，既不能无条件按 GBK 解码（UTF-8 输出会变成乱码），也不能直接 `string(output)`（中文控制台会写出乱码）；非 Windows 平台保持原样。
+- Windows 上的 Apache Provider 应先按可执行文件路径定位对应服务；找到服务时使用 `net stop <服务名>`、`net start <服务名>` 重启，兼容宝塔注册的 `apache` 服务；未找到服务时才使用带 `-f` 配置文件路径的 `httpd -k graceful` 重载。
 - Nginx Provider 解析配置中相对证书路径和执行重载时必须使用同一有效 prefix：优先读取运行中同一 `nginx.exe` 命令行的绝对 `-p`，无法读取或未设置时使用登记的应用根目录；重载须将进程工作目录设为该 prefix，并传入 `-p <prefix>` 与相对 prefix 的 `-c <nginx.conf>`，不能依赖客户端当前工作目录。
 - Nginx 站点扫描必须从主 `nginx.conf` 递归解析 `include` 指令，支持通配符和绝对路径，以覆盖面板位于应用根目录之外的虚拟主机目录；已包含的配置文件按规范路径去重后再解析。
-- 证书同步由已注册 Provider 的部署能力执行，TUI 不按应用类型分支写入证书文件；非 HTTPS 站点不参与同步。Certd 返回申请中或暂未返回证书时应重试，只有 Certd 证书有效期晚于本地证书才部署。证书部署成功后，Nginx、Apache 和 IIS Provider 必须分别执行配置重载、服务重启或绑定刷新使证书生效；需要重启才能生效的 Provider 应在部署后重启并验证证书，验证失败计入同步异常。同步失败需汇总原因并调用 Certd 默认通知渠道，标题使用 `【Certd Client】 证书同步失败【数量：N】（本机名称）` 格式；未填写本机名称时使用主机名和 IPv4。
+- 证书同步由已注册 Provider 的部署能力执行，TUI 不按应用类型分支写入证书文件；非 HTTPS 站点不参与同步。Certd 返回申请中或暂未返回证书时应重试，只有 Certd 证书有效期晚于本地证书才部署。证书部署成功后，Nginx、Apache 和 IIS Provider 必须分别执行配置重载、服务重启或绑定刷新使证书生效；需要重启才能生效的 Provider 应在部署后重启并验证证书，验证失败计入同步异常。同步失败需汇总原因并调用 Certd 默认通知渠道，标题使用 `证书同步失败【数量：N】（本机名称） 【来自CertdClient】` 格式；未填写本机名称时使用主机名和 IPv4。
 - 证书请求阶段最多同时处理 3 个站点；并发仅限 Certd 证书获取和申请轮询，证书写入、状态更新、应用重启及部署后验证必须保持串行，避免 Provider 和数据库状态竞争。
 - 同步中的请求、等待、重试、失败和完成日志必须包含应用类型、站点 ID 与域名，确保并行处理时能定位当前站点。
 - 证书同步编排统一放在 `internal/syncservice`，供 TUI、CLI 和定时任务调用；TUI 仅负责读取界面设置、转发进度和展示结果。一个应用的多个站点完成证书文件写入后最多重启一次；重启失败须将本批已写入站点全部标记失败，单个站点写入失败不得阻断同一应用其余站点的部署和重启。
@@ -65,6 +68,8 @@
 - 长时间扫描开始时立即记录日志；执行超过 10 秒后，每 10 秒输出一次进度，至少包含已处理数量和当前待处理数量。
 - 站点扫描完成提示必须汇总发现总数、保留的禁用站点数、启用的 HTTPS 站点数和新增站点数；存在错误时同时显示失败数。禁用站点不计入 HTTPS 与同步统计。
 - 执行日志需要有独立边框、每条记录的本地时间，并支持 `PageUp` / `PageDown` 分页浏览。
+- 界面日志只显示单行简要信息（首行、限长并提示查看日志文件），外部命令的详细错误堆栈和多行输出只写入 `logs/client.log`，避免 PowerShell 异常块撑满日志区域。
+- 顶部菜单必须提供“打开日志”，用系统默认程序打开 `logs/client.log`（Windows 用 `notepad.exe`，macOS 用 `open`，其他用 `xdg-open`），打开失败要把原因显示到状态栏并写入日志；日志路径统一由 `internal/logging` 提供，打开动作在后台执行且不受“已有任务正在执行”限制，因为同步失败时正是最需要查看日志的时刻。
 - 日志中的换行与超长文本必须按日志内容区可用宽度折行，折行后的实际高度须参与布局计算，不能越过边框或触发终端滚屏。
 - TUI 任一渲染行都应保留终端最后一列，避免 Windows 终端在满宽输出时自动换行，造成增量重绘错位或残留内容。
 - 证书同步的进度日志、失败汇总和通知内容必须包含应用类型、站点 ID 与站点域名，方便定位具体部署目标。

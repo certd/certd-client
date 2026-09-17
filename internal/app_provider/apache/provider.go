@@ -10,7 +10,6 @@ import (
 
 	"github.com/certd/certd-client/internal/app_provider"
 	"github.com/certd/certd-client/internal/certd"
-	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 type ApacheProvider struct {
@@ -93,7 +92,7 @@ func (provider ApacheProvider) Restart(app app_provider.App) error {
 }
 
 func formatRestartError(action string, output []byte, err error) error {
-	detail := decodeCommandOutput(output)
+	detail := app_provider.DecodeCommandOutput(output)
 	if detail == "" {
 		return fmt.Errorf("%s: %w", action, err)
 	}
@@ -101,7 +100,7 @@ func formatRestartError(action string, output []byte, err error) error {
 }
 
 func isServiceNotRunning(output []byte) bool {
-	detail := strings.ToLower(decodeCommandOutput(output))
+	detail := strings.ToLower(app_provider.DecodeCommandOutput(output))
 	for _, phrase := range []string{"没有启动", "服务未启动", "not started", "service is not running"} {
 		if strings.Contains(detail, phrase) {
 			return true
@@ -174,17 +173,6 @@ func (provider ApacheProvider) findConfig(root string) (string, error) {
 		}
 	}
 	return "", nil
-}
-
-func decodeCommandOutput(output []byte) string {
-	if runtime.GOOS != "windows" {
-		return strings.TrimSpace(string(output))
-	}
-	decoded, err := simplifiedchinese.GBK.NewDecoder().Bytes(output)
-	if err != nil {
-		return strings.TrimSpace(string(output))
-	}
-	return strings.TrimSpace(string(decoded))
 }
 
 func (provider ApacheProvider) findExecutable(root string) (string, error) {
