@@ -36,7 +36,7 @@ func (m *Model) loadCertdSettings() {
 	}
 	setting, err := syncservice.ParseCertdSetting(value)
 	if err != nil {
-		m.appendLog("读取 Certd 接口设置失败：" + err.Error())
+		m.logInfo("读取 Certd 接口设置失败：" + err.Error())
 		return
 	}
 	m.certdInputs[0].SetValue(setting.BaseURL)
@@ -67,13 +67,13 @@ func (m Model) updateCertdSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.settingsRepo == nil {
 			m.status = "设置仓库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		maxWaitMinutes, err := certificateWaitMinutes(m.certdInputs[4].Value())
 		if err != nil {
 			m.status = "最长等待时长必须是正整数分钟"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		setting := certdSetting{
@@ -86,24 +86,36 @@ func (m Model) updateCertdSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		content, err := json.Marshal(setting)
 		if err != nil {
 			m.status = "编码 Certd 接口设置失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		if err := m.settingsRepo.SaveSetting(syncservice.CertdSettingKey, string(content)); err != nil {
 			m.status = "保存 Certd 接口设置失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.certdInputs[m.certdFocus].Blur()
 		m.screen = homeScreen
 		m.status = "Certd 接口设置已保存"
-		m.appendLog(m.status)
+		m.logInfo(m.status)
+		return m, m.reportHeartbeat()
 	default:
 		var cmd tea.Cmd
 		m.certdInputs[m.certdFocus], cmd = m.certdInputs[m.certdFocus].Update(msg)
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m Model) reportHeartbeat() tea.Cmd {
+	if m.heartbeat == nil {
+		return nil
+	}
+	reporter := m.heartbeat
+	return func() tea.Msg {
+		reporter.Report(context.Background())
+		return nil
+	}
 }
 
 func certificateWaitMinutes(value string) (int, error) {
@@ -186,7 +198,7 @@ func (m *Model) readSyncProgress() {
 	for {
 		select {
 		case message := <-m.syncProgressCh:
-			m.appendLog(message)
+			m.logInfo(message)
 		default:
 			return
 		}

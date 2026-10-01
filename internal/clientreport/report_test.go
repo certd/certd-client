@@ -2,10 +2,24 @@ package clientreport
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/certd/certd-client/internal/certd"
+	"github.com/certd/certd-client/internal/logging"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 )
+
+type fakeHeartbeatClient struct {
+	payload certd.HeartbeatPayload
+}
+
+func (f *fakeHeartbeatClient) Heartbeat(payload certd.HeartbeatPayload) error {
+	f.payload = payload
+	return nil
+}
 
 type fakeSettings struct {
 	values map[string]string
@@ -26,6 +40,22 @@ func (f *fakeSettings) SaveSetting(key, value string) error {
 type fakeApps struct {
 	apps []storeRepo.TargetApp
 }
+
+type testReporterLogger struct {
+	logs []string
+}
+
+func (l *testReporterLogger) Info(format string, args ...any) {
+	l.logs = append(l.logs, fmt.Sprintf(format, args...))
+}
+
+func (l *testReporterLogger) Warning(format string, args ...any) {}
+
+func (l *testReporterLogger) Error(format string, args ...any) {
+	l.logs = append(l.logs, fmt.Sprintf(format, args...))
+}
+
+var _ logging.Log = (*testReporterLogger)(nil)
 
 func (f *fakeApps) List() ([]storeRepo.TargetApp, error) {
 	return f.apps, nil
@@ -108,6 +138,36 @@ func TestReportSkipsWhenCertdNotConfigured(t *testing.T) {
 	reporter.Report(context.Background())
 	if settings.values[clientSettingKey] != "" {
 		t.Fatal("未配置 Certd 接口时不应生成 clientId")
+	}
+}
+
+func TestReportLogsBeforeSendingHeartbeat(t *testing.T) {
+	setting, err := json.Marshal(map[string]string{
+		"baseUrl":   "https://certd.example.com",
+		"keyId":     "key-id",
+		"keySecret": "key-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := &fakeSettings{values: map[string]string{"certd": string(setting)}}
+	client := &fakeHeartbeatClient{}
+	logger := &testReporterLogger{}
+	reporter := New(settings, &fakeApps{apps: []storeRepo.TargetApp{{
+		Enabled: true, SiteCount: 2, HttpsSiteCount: 1,
+	}}}, logger)
+	reporter.newClient = func(_ certd.Config) HeartbeatClient { return client }
+
+	reporter.Report(context.Background())
+
+	if len(logger.logs) < 2 {
+		t.Fatalf("应记录发送前和发送后的日志，got %v", logger.logs)
+	}
+	if !strings.Contains(logger.logs[0], "正在上报心跳") {
+		t.Fatalf("第一条日志应说明正在上报心跳，got %q", logger.logs[0])
+	}
+	if !strings.Contains(logger.logs[0], "站点 2") || !strings.Contains(logger.logs[0], "HTTPS 1") {
+		t.Fatalf("发送日志应包含站点统计，got %q", logger.logs[0])
 	}
 }
 

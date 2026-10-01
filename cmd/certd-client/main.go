@@ -24,6 +24,7 @@ import (
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
 	"github.com/certd/certd-client/internal/tui"
+	"github.com/certd/certd-client/internal/updater"
 	"github.com/certd/certd-client/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/robfig/cron/v3"
@@ -40,6 +41,13 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	if encoded, ok := updater.HelperArguments(os.Args[1:]); ok {
+		if err := updater.RunHelper(encoded); err != nil {
+			reportStartupError("更新失败：" + err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if isVersionCommand(os.Args[1:]) {
 		fmt.Println(versionMessage())
 		return
@@ -91,7 +99,7 @@ func writeStartupError(logDir, message string) {
 		fmt.Fprintln(os.Stderr, "写入启动错误日志失败："+err.Error())
 		return
 	}
-	logger.Println("启动失败：" + message)
+	logger.Error("启动失败：%s", message)
 	if err := closer.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, "关闭启动错误日志失败："+err.Error())
 	}
@@ -116,13 +124,12 @@ func run(args []string) error {
 	settingsRepo := storeRepo.NewSettingsRepository(db)
 	providers := registeredProviders(runtime.GOOS)
 	service := syncservice.New(siteRepo, providers, nil)
-	reporter := clientreport.New(settingsRepo, repo, func(format string, args ...any) {
-		logger.Printf(format, args...)
-	})
+	reporter := clientreport.New(settingsRepo, repo, logger)
 	if len(args) > 0 && args[0] != "tui" {
 		switch strings.ToLower(args[0]) {
 		case "sync":
-			output := newConsoleAndLogOutput(logger, func(values ...any) { fmt.Println(values...) })
+			logger.SetConsole(os.Stdout)
+			output := func(values ...any) { logger.Info("%s", fmt.Sprint(values...)) }
 			result := service.RunConfigured(context.Background(), repo, settingsRepo, func(message string) { output(message) })
 			writeSyncSummary(output, result)
 			reporter.Report(context.Background())
@@ -142,11 +149,16 @@ func run(args []string) error {
 	}
 	// TUI 运行期间同样周期上报心跳，保证打开界面时也算在线。
 	heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
-	go reporter.Run(heartbeatCtx)
-
 	// WithoutCatchPanics 让 panic 传播到 main 的 recover，从而写入日志文件；
 	// 否则 bubbletea 会吞掉 panic 只打印到 stdout，logs/client.log 留不下崩溃记录。
-	p := tea.NewProgram(tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers), tea.WithAltScreen(), tea.WithoutCatchPanics())
+	tuiModel := tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers)
+	tuiModel.SetHeartbeatReporter(reporter)
+	p := tea.NewProgram(tuiModel, tea.WithAltScreen(), tea.WithoutCatchPanics())
+	// p.Send 可能等待当前 Update 返回；异步投递避免 Update 内写日志时与自身死锁。
+	logger.SetTUISink(func(message string) {
+		go p.Send(tui.LogMessage(message))
+	})
+	go reporter.Run(heartbeatCtx)
 	finalModel, err := p.Run()
 	if err != nil {
 		heartbeatCancel()
@@ -193,11 +205,12 @@ func parseStartSchedule(args []string, now time.Time) (cron.Schedule, string, er
 	return schedule, expression, nil
 }
 
-func runStart(schedule cron.Schedule, expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger interface{ Println(...any) }, reporter *clientreport.Reporter) error {
+func runStart(schedule cron.Schedule, expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger *logging.Logger, reporter *clientreport.Reporter) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	logger.SetConsole(os.Stdout)
+	output := func(values ...any) { logger.Info("%s", fmt.Sprint(values...)) }
 	go reporter.Run(ctx)
-	output := newConsoleAndLogOutput(logger, func(values ...any) { fmt.Println(values...) })
 	run := func() {
 		result := service.RunConfigured(ctx, apps, settings, func(message string) { output(message) })
 		writeSyncSummary(output, result)
@@ -257,17 +270,6 @@ func writeSyncSummary(output func(...any), result syncservice.Result) {
 	output(syncSummaryMessage(result.Succeeded, result.Skipped, len(result.Errors)))
 	for _, item := range result.Errors {
 		output("证书同步失败：" + item)
-	}
-}
-
-func newConsoleAndLogOutput(logger interface{ Println(...any) }, console func(...any)) func(...any) {
-	return func(values ...any) {
-		if logger != nil {
-			logger.Println(values...)
-		}
-		if console != nil {
-			console(values...)
-		}
 	}
 }
 

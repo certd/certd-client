@@ -1,10 +1,13 @@
 package logging
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 )
 
 // DefaultDir 是日志目录，DefaultFileName 是客户端日志文件名。
@@ -13,6 +16,13 @@ const (
 	DefaultFileName = "client.log"
 )
 
+// Log 是业务代码使用的统一日志接口。具体输出目标由 Logger 实例按运行模式配置。
+type Log interface {
+	Info(string, ...any)
+	Warning(string, ...any)
+	Error(string, ...any)
+}
+
 // DefaultPath 返回默认日志文件路径，供界面直接打开日志查看详细错误。
 func DefaultPath() string { return filepath.Join(DefaultDir, DefaultFileName) }
 
@@ -20,7 +30,15 @@ func DefaultPath() string { return filepath.Join(DefaultDir, DefaultFileName) }
 func FilePath(dir string) string { return filepath.Join(dir, DefaultFileName) }
 
 // New creates the application logger and ensures the log directory exists.
-func New(dir string) (*log.Logger, io.Closer, error) {
+type Logger struct {
+	file    *log.Logger
+	closer  io.Closer
+	mu      sync.RWMutex
+	console io.Writer
+	tui     func(string)
+}
+
+func New(dir string) (*Logger, io.Closer, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -28,5 +46,60 @@ func New(dir string) (*log.Logger, io.Closer, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return log.New(file, "", log.LstdFlags), file, nil
+	logger := &Logger{file: log.New(file, "", log.LstdFlags), closer: file}
+	return logger, file, nil
+}
+
+// SetConsole configures a run-mode destination in addition to the log file.
+func (l *Logger) SetConsole(writer io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.console = writer
+	l.tui = nil
+}
+
+// SetTUISink configures a TUI destination in addition to the log file.
+func (l *Logger) SetTUISink(sink func(string)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tui = sink
+	l.console = nil
+}
+
+func (l *Logger) Print(values ...any) { l.write(fmt.Sprint(values...)) }
+
+func (l *Logger) Println(values ...any) { l.write(fmt.Sprintln(values...)) }
+
+func (l *Logger) Printf(format string, args ...any) { l.write(fmt.Sprintf(format, args...)) }
+
+func (l *Logger) Info(format string, args ...any) {
+	l.writeLevel("INFO", format, args...)
+}
+
+func (l *Logger) Warning(format string, args ...any) {
+	l.writeLevel("WARNING", format, args...)
+}
+
+func (l *Logger) Error(format string, args ...any) {
+	l.writeLevel("ERROR", format, args...)
+}
+
+func (l *Logger) writeLevel(level, format string, args ...any) {
+	l.write("[" + level + "] " + fmt.Sprintf(format, args...))
+}
+
+func (l *Logger) write(message string) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	l.file.Print(message)
+	if l.console != nil {
+		if strings.HasSuffix(message, "\n") {
+			fmt.Fprint(l.console, message)
+		} else {
+			fmt.Fprintln(l.console, message)
+		}
+	}
+	if l.tui != nil {
+		l.tui(message)
+	}
 }

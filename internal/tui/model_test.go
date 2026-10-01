@@ -2,14 +2,15 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/certd/certd-client/internal/app_provider"
@@ -19,11 +20,31 @@ import (
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
+	"github.com/certd/certd-client/internal/updater"
 	"github.com/certd/certd-client/internal/version"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+type testTUILogger struct {
+	output *bytes.Buffer
+	sink   func(string)
+}
+
+func (l *testTUILogger) write(level, format string, args ...any) {
+	message := "[" + level + "] " + fmt.Sprintf(format, args...)
+	if l.output != nil {
+		_, _ = fmt.Fprintln(l.output, message)
+	}
+	if l.sink != nil {
+		l.sink(message)
+	}
+}
+
+func (l *testTUILogger) Info(format string, args ...any)    { l.write("INFO", format, args...) }
+func (l *testTUILogger) Warning(format string, args ...any) { l.write("WARNING", format, args...) }
+func (l *testTUILogger) Error(format string, args ...any)   { l.write("ERROR", format, args...) }
 
 func testRegistry() *app_provider.Registry {
 	return app_provider.NewRegistry(nginx.New(), apache.New())
@@ -45,9 +66,9 @@ func (p staticProvider) ScanApps(_ string, report func(app_provider.Progress)) (
 
 func (p staticProvider) ScanSites(app_provider.App) ([]app_provider.Site, error) { return nil, nil }
 
-func TestAppendLogAddsDisplayTime(t *testing.T) {
+func TestAppendDisplayLogAddsDisplayTime(t *testing.T) {
 	model := Model{}
-	model.appendLog("扫描完成")
+	model.appendDisplayLog("扫描完成")
 
 	if len(model.logs) != 1 {
 		t.Fatalf("expected one log entry, got %d", len(model.logs))
@@ -57,14 +78,60 @@ func TestAppendLogAddsDisplayTime(t *testing.T) {
 	}
 }
 
+func TestUpdateAddsExternalLogMessage(t *testing.T) {
+	model := NewModel(nil, nil, nil)
+	updated, _ := model.Update(LogMessage("证书同步失败：应用[iis] 部署失败\n    + CategoryInfo : OperationStopped\n    + FullyQualifiedErrorId : ValueDoesNotFallWithinTheExpectedRange"))
+	got := updated.(Model).logs
+	if len(got) != 1 || !strings.Contains(got[0], "证书同步失败") {
+		t.Fatalf("external log should appear in TUI log panel, got %#v", got)
+	}
+	if strings.Contains(got[0], "CategoryInfo") || strings.Contains(got[0], "FullyQualifiedErrorId") {
+		t.Fatalf("external full command detail must not enter TUI layout, got %q", got[0])
+	}
+}
+
+func TestVersionCheckLogsChannelsAndUpdate(t *testing.T) {
+	var output bytes.Buffer
+	model := Model{logger: &testTUILogger{output: &output}}
+	updated, _ := model.Update(updateCheckedMsg{result: &updater.Result{
+		Version:  "0.4.0",
+		Channels: []updater.Channel{{Name: "AtomGit", Version: "0.4.0", Latency: 120 * time.Millisecond}, {Name: "GitHub", Version: "0.4.0", Latency: 250 * time.Millisecond}},
+		Fastest:  updater.Channel{Name: "AtomGit"},
+	}})
+	model = updated.(Model)
+	if !strings.Contains(output.String(), "版本检查结果：AtomGit") || !strings.Contains(output.String(), "发现新版本") {
+		t.Fatalf("expected version check logs, got %q", output.String())
+	}
+	if model.updateResult == nil || model.updateResult.Version != "0.4.0" {
+		t.Fatalf("expected update result to be stored, got %#v", model.updateResult)
+	}
+}
+
+func TestTitleUpdateNoticeIsStaticWithoutChangingMenu(t *testing.T) {
+	shown := renderTitleWithUpdate(120, "0.4.0")
+	hidden := renderTitleWithUpdate(120, "0.4.0")
+	if !strings.Contains(shown, "有更新 v0.4.0") {
+		t.Fatalf("expected title update notice, got %q", shown)
+	}
+	if hidden != shown {
+		t.Fatalf("expected update notice to remain static, shown=%q hidden=%q", shown, hidden)
+	}
+	model := Model{menuCursor: updateMenuIndex, updateResult: &updater.Result{Version: "0.4.0"}, width: 120}
+	if !strings.Contains(model.View(), "更新版本") {
+		t.Fatal("expected update menu item to remain visible")
+	}
+}
+
 func TestAppendLogKeepsCommandDetailInLogFileOnly(t *testing.T) {
 	var logFile bytes.Buffer
-	model := Model{logger: log.New(&logFile, "", 0)}
+	logger := &testTUILogger{output: &logFile}
+	model := Model{logger: logger}
+	logger.sink = model.appendDisplayLog
 	detail := "证书同步失败：应用[iis] 站点[251] aaa.handfree.work 部署失败：值不在预期的范围内。\n" +
 		"    + CategoryInfo          : OperationStopped: (:), ArgumentException\n" +
 		"    + FullyQualifiedErrorId : ValueDoesNotFallWithinTheExpectedRange,Microsoft.PowerShell.Commands.InvokeMethodCommand\n"
 
-	model.appendLog(detail)
+	model.logInfo(detail)
 
 	if len(model.logs) != 1 {
 		t.Fatalf("expected one log entry, got %d", len(model.logs))
@@ -82,10 +149,12 @@ func TestAppendLogKeepsCommandDetailInLogFileOnly(t *testing.T) {
 
 func TestAppendLogTruncatesLongBriefErrorInTui(t *testing.T) {
 	var logFile bytes.Buffer
-	model := Model{logger: log.New(&logFile, "", 0)}
+	logger := &testTUILogger{output: &logFile}
+	model := Model{logger: logger}
+	logger.sink = model.appendDisplayLog
 	fullText := strings.Repeat("证书同步失败：读取配置文件详细错误 ", 40)
 
-	model.appendLog(fullText)
+	model.logInfo(fullText)
 
 	if !strings.HasSuffix(model.logs[0], "…（详见日志文件）") {
 		t.Fatalf("expected truncated TUI log entry, got %q", model.logs[0])
@@ -145,6 +214,10 @@ func TestScanProgressTickWritesProgressLog(t *testing.T) {
 	progress := make(chan app_provider.Progress, 1)
 	progress <- app_provider.Progress{ScannedDirectories: 42, RemainingDirectories: 7}
 	model := Model{scanning: true, scanProgressCh: progress}
+	var output bytes.Buffer
+	logger := &testTUILogger{output: &output}
+	logger.sink = model.appendDisplayLog
+	model.logger = logger
 
 	updated, next := model.Update(scanProgressTickMsg{})
 	model = updated.(Model)
@@ -154,13 +227,16 @@ func TestScanProgressTickWritesProgressLog(t *testing.T) {
 	if !strings.Contains(model.status, "已扫描 42 个目录，剩余 7 个目录") {
 		t.Fatalf("unexpected progress status: %q", model.status)
 	}
-	if len(model.logs) != 1 || !strings.Contains(model.logs[0], "已扫描 42 个目录，剩余 7 个目录") {
-		t.Fatalf("expected progress log, got %#v", model.logs)
+	if !strings.Contains(output.String(), "已扫描 42 个目录，剩余 7 个目录") {
+		t.Fatalf("expected progress log, got %q", output.String())
 	}
 }
 
 func TestStartingScanWritesLogImmediately(t *testing.T) {
-	model := NewModel(nil, nil, nil, testRegistry())
+	var output bytes.Buffer
+	logger := &testTUILogger{output: &output}
+	model := NewModel(nil, nil, logger, testRegistry())
+	logger.sink = model.appendDisplayLog
 	model.rootInput.SetValue("C:\\scan-root")
 
 	updated, command := model.updateRootInput(tea.KeyMsg{Type: tea.KeyEnter})
@@ -168,8 +244,8 @@ func TestStartingScanWritesLogImmediately(t *testing.T) {
 	if command == nil || !model.scanning {
 		t.Fatal("expected scanning command to start")
 	}
-	if len(model.logs) != 1 || !strings.Contains(model.logs[0], "开始扫描根目录：C:\\scan-root") {
-		t.Fatalf("expected immediate scan log, got %#v", model.logs)
+	if !strings.Contains(output.String(), "开始扫描根目录：C:\\scan-root") {
+		t.Fatalf("expected immediate scan log, got %q", output.String())
 	}
 }
 
@@ -183,13 +259,16 @@ func TestStartingAppScanDisablesMissingApplications(t *testing.T) {
 	if err := repo.Add([]storeRepo.TargetApp{{RootDir: missingRoot, AppType: "nginx"}}); err != nil {
 		t.Fatal(err)
 	}
-	model := NewModel(repo, nil, nil, testRegistry())
+	var output bytes.Buffer
+	logger := &testTUILogger{output: &output}
+	model := NewModel(repo, nil, logger, testRegistry())
+	logger.sink = model.appendDisplayLog
 	model.rootInput.SetValue(t.TempDir())
 
 	updated, command := model.updateRootInput(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if command == nil || !model.scanning || !strings.Contains(strings.Join(model.logs, "\n"), "已禁用 1 个不存在的应用目录") {
-		t.Fatalf("expected disabled-app precheck before scan, got %#v", model)
+	if command == nil || !model.scanning || !strings.Contains(output.String(), "已禁用 1 个不存在的应用目录") {
+		t.Fatalf("expected disabled-app precheck before scan, got %q", output.String())
 	}
 	apps, err := repo.List()
 	if err != nil {
@@ -219,8 +298,9 @@ func TestMenuIncludesOpenLogFile(t *testing.T) {
 }
 
 func TestOpenLogMenuOpensLogFile(t *testing.T) {
+	var output bytes.Buffer
 	opened := ""
-	model := Model{menuCursor: openLogMenuIndex, openLog: func(path string) error {
+	model := Model{menuCursor: openLogMenuIndex, logger: &testTUILogger{output: &output}, openLog: func(path string) error {
 		opened = path
 		return nil
 	}}
@@ -247,13 +327,14 @@ func TestOpenLogMenuOpensLogFile(t *testing.T) {
 	if !strings.Contains(model.status, "已打开日志文件") || !strings.Contains(model.status, logging.DefaultPath()) {
 		t.Fatalf("expected open log status, got %q", model.status)
 	}
-	if !strings.Contains(strings.Join(model.logs, "\n"), logging.DefaultPath()) {
-		t.Fatalf("expected open log entry in logs, got %#v", model.logs)
+	if !strings.Contains(output.String(), logging.DefaultPath()) {
+		t.Fatalf("expected open log entry in logger, got %q", output.String())
 	}
 }
 
 func TestOpenLogMenuReportsFailure(t *testing.T) {
-	model := Model{menuCursor: openLogMenuIndex, openLog: func(string) error {
+	var output bytes.Buffer
+	model := Model{menuCursor: openLogMenuIndex, logger: &testTUILogger{output: &output}, openLog: func(string) error {
 		return errors.New("拒绝访问")
 	}}
 
@@ -268,8 +349,8 @@ func TestOpenLogMenuReportsFailure(t *testing.T) {
 	if !strings.Contains(model.status, "打开日志文件失败") || !strings.Contains(model.status, "拒绝访问") {
 		t.Fatalf("expected open log failure status, got %q", model.status)
 	}
-	if !strings.Contains(strings.Join(model.logs, "\n"), "拒绝访问") {
-		t.Fatalf("expected open log failure entry in logs, got %#v", model.logs)
+	if !strings.Contains(output.String(), "拒绝访问") {
+		t.Fatalf("expected open log failure entry in logger, got %q", output.String())
 	}
 }
 
@@ -868,32 +949,86 @@ func TestCertdSettingsMenuSavesJSONSetting(t *testing.T) {
 	}
 }
 
+type testHeartbeatReporter struct {
+	called bool
+}
+
+func (r *testHeartbeatReporter) Report(context.Context) {
+	r.called = true
+}
+
+func TestCertdSettingsSaveTriggersHeartbeat(t *testing.T) {
+	db, err := store.OpenDatabase("file:tui-certd-heartbeat?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := storeRepo.NewSettingsRepository(db)
+	reporter := &testHeartbeatReporter{}
+	model := NewModelWithSettings(nil, nil, settings, nil)
+	model.SetHeartbeatReporter(reporter)
+	model.certdInputs[0].SetValue("https://certd.example.com")
+	model.certdInputs[1].SetValue("key-id")
+	model.certdInputs[2].SetValue("key-secret")
+
+	_, cmd := model.updateCertdSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("保存成功后应返回心跳命令")
+	}
+	cmd()
+	if !reporter.called {
+		t.Fatal("保存接口设置后应立即触发心跳")
+	}
+}
+
 func TestCertificateSyncProgressIsWrittenDuringExecution(t *testing.T) {
 	progress := make(chan string, 1)
 	progress <- "同步中：正在请求 example.com 证书"
-	model := Model{syncing: true, syncProgressCh: progress}
+	var output bytes.Buffer
+	model := Model{syncing: true, syncProgressCh: progress, logger: &testTUILogger{output: &output}}
 
 	updated, next := model.Update(syncProgressTickMsg{})
 	model = updated.(Model)
-	if next == nil || len(model.logs) != 1 || !strings.Contains(model.logs[0], "正在请求 example.com") {
-		t.Fatalf("expected live sync progress log, model=%#v", model)
+	if next == nil || !strings.Contains(output.String(), "正在请求 example.com") {
+		t.Fatalf("expected live sync progress log, got %q", output.String())
 	}
 }
 
-func TestConfigureInputForPlatformDisablesPasteOnDarwin(t *testing.T) {
-	input := textinput.New()
-	configureInputForPlatform(&input, "darwin")
-	if input.KeyMap.Paste.Enabled() {
-		t.Fatal("expected Ctrl+V clipboard paste disabled on darwin")
+func TestLogInfoUsesLogger(t *testing.T) {
+	var output bytes.Buffer
+	model := Model{logger: &testTUILogger{output: &output}}
+	model.logInfo("扫描完成")
+	if !strings.Contains(output.String(), "[INFO] 扫描完成") {
+		t.Fatalf("expected info message to use logger, got %q", output.String())
 	}
 }
 
-func TestConfigureInputForPlatformKeepsPasteOnOtherPlatforms(t *testing.T) {
-	for _, goos := range []string{"windows", "linux", "freebsd"} {
-		input := textinput.New()
-		configureInputForPlatform(&input, goos)
-		if !input.KeyMap.Paste.Enabled() {
-			t.Fatalf("expected Ctrl+V clipboard paste enabled on %s", goos)
-		}
+func TestCertdSettingsTypingQDoesNotQuit(t *testing.T) {
+	model := Model{screen: certdSettingsScreen}
+	model.certdInputs[0] = textinput.New()
+	model.certdInputs[0].Focus()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	model = updated.(Model)
+	if model.screen != certdSettingsScreen {
+		t.Fatal("typing q in Certd settings must not quit the TUI")
+	}
+	if got := model.certdInputs[0].Value(); got != "q" {
+		t.Fatalf("expected q to be inserted into the focused input, got %q", got)
+	}
+}
+
+func TestUpdatePropagatesPanicToProgram(t *testing.T) {
+	model := Model{screen: certdSettingsScreen, certdFocus: len(Model{}.certdInputs)}
+	deferred := false
+	func() {
+		defer func() {
+			if recover() != nil {
+				deferred = true
+			}
+		}()
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	}()
+	if !deferred {
+		t.Fatal("expected Update panic to propagate to main")
 	}
 }

@@ -3,7 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
-	"log"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -11,8 +11,8 @@ import (
 	"github.com/certd/certd-client/internal/app_provider"
 	"github.com/certd/certd-client/internal/logging"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
+	"github.com/certd/certd-client/internal/updater"
 	"github.com/certd/certd-client/internal/version"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -47,7 +47,8 @@ type Model struct {
 	siteRepo         *storeRepo.AppSiteRepository
 	settingsRepo     *storeRepo.SettingsRepository
 	providers        *app_provider.Registry
-	logger           *log.Logger
+	logger           logging.Log
+	heartbeat        HeartbeatReporter
 	menuCursor       int
 	screen           screen
 	rootInput        textinput.Model
@@ -75,24 +76,36 @@ type Model struct {
 	syncCancel       context.CancelFunc
 	startRequested   bool
 	openLog          func(path string) error
+	updateResult     *updater.Result
+	updateChecking   bool
 	width, height    int
+}
+
+// HeartbeatReporter 是接口设置保存后立即上报心跳所需的最小能力。
+type HeartbeatReporter interface {
+	Report(context.Context)
+}
+
+// SetHeartbeatReporter 设置接口配置保存后使用的心跳上报器。
+func (m *Model) SetHeartbeatReporter(reporter HeartbeatReporter) {
+	m.heartbeat = reporter
 }
 
 var menuItems = []string{"应用扫描", "站点扫描", "应用管理", "Certd接口设置", "同步证书", "定时同步", "打开日志"}
 
 // openLogMenuIndex 是“打开日志”菜单项下标，用于把日志查看从耗时的同步任务限制中独立出来。
 const openLogMenuIndex = 6
+const updateMenuIndex = 7
 
-func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
+func NewModel(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, logger logging.Log, registries ...*app_provider.Registry) Model {
 	return NewModelWithSettings(repo, siteRepo, nil, logger, registries...)
 }
 
-func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, settingsRepo *storeRepo.SettingsRepository, logger *log.Logger, registries ...*app_provider.Registry) Model {
+func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRepo.AppSiteRepository, settingsRepo *storeRepo.SettingsRepository, logger logging.Log, registries ...*app_provider.Registry) Model {
 	input := textinput.New()
 	input.Placeholder = "例如 /etc 或 C:\\Web"
 	input.CharLimit = 2048
 	input.Width = 60
-	configureInputForPlatform(&input, runtime.GOOS)
 	var providers *app_provider.Registry
 	if len(registries) > 0 {
 		providers = registries[0]
@@ -103,7 +116,6 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 		certdInputs[i].Placeholder = placeholder
 		certdInputs[i].CharLimit = 2048
 		certdInputs[i].Width = 60
-		configureInputForPlatform(&certdInputs[i], runtime.GOOS)
 	}
 	certdInputs[2].EchoMode = textinput.EchoPassword
 	return Model{
@@ -112,26 +124,8 @@ func NewModelWithSettings(repo *storeRepo.TargetAppRepository, siteRepo *storeRe
 	}
 }
 
-// configureInputForPlatform 根据平台调整文本输入框的键盘绑定。
-// macOS 上 textinput 把 Ctrl+V 绑定到剪贴板粘贴，粘贴会通过 pbpaste 子进程读取系统剪贴板，
-// 该子进程在 TUI 的 raw 模式下可能导致程序闪退。macOS 终端的 Cmd+V 由终端直接注入文本，
-// 不经过 pbpaste，因此禁用 Ctrl+V，粘贴统一走 Cmd+V。
-func configureInputForPlatform(input *textinput.Model, goos string) {
-	if goos == "darwin" {
-		input.KeyMap.Paste = key.NewBinding(key.WithDisabled())
-	}
-}
-
-// certdSettingsPasteHint 返回粘贴提示；macOS 上 Ctrl+V 已禁用，提示使用 Cmd+V。
-func certdSettingsPasteHint() string {
-	if runtime.GOOS == "darwin" {
-		return " · macOS 请用 Cmd+V 粘贴"
-	}
-	return ""
-}
-
 func (m Model) Init() tea.Cmd {
-	return func() tea.Msg { return appsLoadedMsg{apps: m.loadApps()} }
+	return tea.Batch(func() tea.Msg { return appsLoadedMsg{apps: m.loadApps()} }, m.checkUpdates())
 }
 
 // StartRequested reports whether the user selected the TUI entry that switches to CLI start mode.
@@ -177,6 +171,16 @@ type logOpenedMsg struct {
 	err  error
 }
 
+type updateCheckedMsg struct {
+	result *updater.Result
+	err    error
+}
+type updateReadyMsg struct{}
+type updateLogMsg string
+
+// LogMessage 是后台任务投递给 TUI 的简要日志消息。
+type LogMessage string
+
 // openLogCommand 在后台用系统默认程序打开日志文件，失败原因回传到界面并写入日志。
 func (m Model) openLogCommand() tea.Cmd {
 	path := logging.DefaultPath()
@@ -186,6 +190,37 @@ func (m Model) openLogCommand() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return logOpenedMsg{path: path, err: open(path)}
+	}
+}
+
+func (m Model) checkUpdates() tea.Cmd {
+	return func() tea.Msg {
+		m.logInfo("开始检查版本：AtomGit、GitHub")
+		result, err := updater.Check(context.Background(), nil, runtime.GOOS, runtime.GOARCH)
+		return updateCheckedMsg{result: &result, err: err}
+	}
+}
+
+func (m Model) applyUpdate() tea.Cmd {
+	return func() tea.Msg {
+		if m.updateResult == nil {
+			return updateLogMsg("更新失败：没有可用更新")
+		}
+		m.logInfo(fmt.Sprintf("开始更新到 v%s：使用 %s（响应 %s）", m.updateResult.Version, m.updateResult.Fastest.Name, m.updateResult.Fastest.Latency.Round(time.Millisecond)))
+		archive, err := updater.Download(context.Background(), nil, m.updateResult.Fastest)
+		if err != nil {
+			return updateLogMsg("下载更新失败：" + err.Error())
+		}
+		m.logInfo("更新安装包下载并校验完成")
+		executable, err := os.Executable()
+		if err != nil {
+			return updateLogMsg("获取程序路径失败：" + err.Error())
+		}
+		if err = updater.StartReplacement(archive, executable, os.Getpid(), os.Args[1:]); err != nil {
+			return updateLogMsg("启动更新替换程序失败：" + err.Error())
+		}
+		m.logInfo("更新替换程序已启动，客户端即将重启")
+		return updateReadyMsg{}
 	}
 }
 
@@ -202,10 +237,37 @@ func (m Model) loadApps() []storeRepo.TargetApp {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case LogMessage:
+		m.appendDisplayLog(string(msg))
+	case updateLogMsg:
+		m.logInfo(string(msg))
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case appsLoadedMsg:
 		m.apps = msg.apps
+	case updateCheckedMsg:
+		m.updateChecking = false
+		if msg.err != nil {
+			m.status = "检查更新失败：" + msg.err.Error()
+			m.logInfo("检查更新失败：" + msg.err.Error())
+			return m, nil
+		}
+		m.updateResult = msg.result
+		if msg.result == nil {
+			m.status = "检查更新失败：未返回版本信息"
+			m.logInfo(m.status)
+			return m, nil
+		}
+		for _, channel := range msg.result.Channels {
+			m.logInfo(fmt.Sprintf("版本检查结果：%s v%s，响应 %s", channel.Name, channel.Version, channel.Latency.Round(time.Millisecond)))
+		}
+		if msg.result != nil && msg.result.Version != version.String() {
+			m.status = "发现新版本 v" + msg.result.Version
+			m.logInfo("发现新版本：当前 v" + version.String() + "，最新 v" + msg.result.Version + "，最快渠道 " + msg.result.Fastest.Name)
+		}
+		m.status = "当前已是最新版本 v" + version.String()
+	case updateReadyMsg:
+		return m, tea.Quit
 	case scanProgressTickMsg:
 		if !m.scanning {
 			return m, nil
@@ -216,14 +278,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = fmt.Sprintf("扫描中（%s）：已扫描 %d 个目录，剩余 %d 个目录", m.scanProgress.ProviderType, m.scanProgress.ScannedDirectories, m.scanProgress.RemainingDirectories)
 		}
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 		return m, scanProgressTick()
 	case scanCompletedMsg:
 		m.scanning = false
 		m.scanProgressCh = nil
 		if msg.err != nil {
 			m.status = "扫描失败：" + msg.err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.discovered = msg.apps
@@ -231,7 +293,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectCursor = 0
 		m.screen = selectionScreen
 		m.status = fmt.Sprintf("扫描完成，发现 %d 个应用安装目录", len(msg.apps))
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 	case siteScanCompletedMsg:
 		m.siteScanning = false
 		m.apps = m.loadApps()
@@ -239,9 +301,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.errors) > 0 {
 			m.status += fmt.Sprintf("，失败 %d 个", len(msg.errors))
 		}
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 		for _, scanErr := range msg.errors {
-			m.appendLog("站点扫描失败：" + scanErr)
+			m.logInfo("站点扫描失败：" + scanErr)
 		}
 	case certificateSyncCompletedMsg:
 		m.syncing = false
@@ -254,9 +316,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = fmt.Sprintf("证书同步完成：成功 %d，跳过 %d，失败 %d", msg.result.Succeeded, msg.result.Skipped, len(msg.result.Errors))
 		}
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 		for _, item := range msg.result.Errors {
-			m.appendLog("证书同步失败：" + item)
+			m.logInfo("证书同步失败：" + item)
 		}
 	case logOpenedMsg:
 		if msg.err != nil {
@@ -264,7 +326,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "已打开日志文件：" + msg.path
 		}
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 	case syncProgressTickMsg:
 		if !m.syncing {
 			return m, nil
@@ -277,10 +339,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncCancel()
 			}
 			m.status = "正在取消证书同步"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
-		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.screen != rootInputScreen) {
+		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.screen == homeScreen) {
 			return m, tea.Quit
 		}
 		switch msg.String() {
@@ -318,15 +380,24 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuCursor--
 		}
 	case "down", "j", "right":
-		if m.menuCursor < len(menuItems)-1 {
+		if m.menuCursor < updateMenuIndex {
 			m.menuCursor++
 		}
 	case "enter", " ":
 		// 打开日志不受“已有任务正在执行”限制：同步失败时正是最需要查看日志的时刻。
 		if m.menuCursor == openLogMenuIndex {
 			m.status = "正在打开日志文件：" + logging.DefaultPath()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, m.openLogCommand()
+		}
+		if m.menuCursor == updateMenuIndex {
+			if m.updateResult == nil || m.updateResult.Version == version.String() {
+				m.status = "正在检查更新"
+				m.updateChecking = true
+				return m, m.checkUpdates()
+			}
+			m.status = "正在下载并安装 v" + m.updateResult.Version
+			return m, m.applyUpdate()
 		}
 		if m.scanning || m.siteScanning || m.syncing {
 			m.status = "已有任务正在执行"
@@ -337,7 +408,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rootInput.Reset()
 			m.rootInput.Focus()
 			m.status = "请输入扫描根目录，回车开始扫描"
-			m.appendLog("开始应用扫描：等待输入根目录")
+			m.logInfo("开始应用扫描：等待输入根目录")
 		} else if m.menuCursor == 1 {
 			if m.scanning || m.siteScanning || m.syncing {
 				m.status = "已有扫描任务正在执行"
@@ -352,12 +423,12 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if len(activeApps) == 0 {
 				m.status = "暂无已启用应用，无法扫描站点"
-				m.appendLog(m.status)
+				m.logInfo(m.status)
 				return m, nil
 			}
 			m.siteScanning = true
 			m.status = fmt.Sprintf("开始扫描 %d 个已登记应用的站点", len(activeApps))
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, m.scanSites(activeApps)
 		} else if m.menuCursor == 2 {
 			m.apps = m.loadApps()
@@ -366,7 +437,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.managedSites = nil
 			m.screen = appManagementScreen
 			m.status = fmt.Sprintf("应用管理：当前已登记 %d 个应用", len(m.apps))
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 		} else if m.menuCursor == 3 {
 			m.loadCertdSettings()
 			m.certdFocus = 0
@@ -376,7 +447,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.certdInputs[0].Focus()
 			m.screen = certdSettingsScreen
 			m.status = "请输入 Certd 接口配置，回车保存，Esc 返回"
-			m.appendLog("打开 Certd 接口设置")
+			m.logInfo("打开 Certd 接口设置")
 		} else if m.menuCursor == 4 {
 			if m.scanning || m.siteScanning || m.syncing {
 				m.status = "已有任务正在执行"
@@ -391,7 +462,7 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if len(activeApps) == 0 {
 				m.status = "暂无已启用应用，无法同步证书"
-				m.appendLog(m.status)
+				m.logInfo(m.status)
 				return m, nil
 			}
 			m.syncing = true
@@ -399,11 +470,11 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			syncContext, cancel := context.WithCancel(context.Background())
 			m.syncCancel = cancel
 			m.status = fmt.Sprintf("开始同步 %d 个应用的证书", len(activeApps))
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, tea.Batch(m.syncCertificatesService(syncContext, activeApps, m.syncProgressCh), syncProgressTick())
 		} else if m.menuCursor == 5 {
 			m.startRequested = true
-			m.appendLog("切换到定时同步模式")
+			m.logInfo("切换到定时同步模式")
 			return m, tea.Quit
 		}
 	}
@@ -433,19 +504,19 @@ func (m Model) updateAppManagement(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.repo == nil {
 			m.status = "数据库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.managedApp = m.apps[m.appManageCursor]
 		if m.siteRepo == nil {
 			m.status = "站点仓库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		sites, err := m.siteRepo.ListSites(m.managedApp.ID)
 		if err != nil {
 			m.status = "读取站点失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.managedSites = sites
@@ -453,7 +524,7 @@ func (m Model) updateAppManagement(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.siteManageOffset = 0
 		m.screen = siteListScreen
 		m.status = fmt.Sprintf("查看应用站点：%s", m.managedApp.RootDir)
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 	case "d", "delete":
 		m.managedApp = m.apps[m.appManageCursor]
 		m.screen = deleteAppConfirmScreen
@@ -485,14 +556,14 @@ func (m Model) updateSiteList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ":
 		if m.siteRepo == nil {
 			m.status = "站点仓库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		site := &m.managedSites[m.siteManageCursor]
 		enabled := !site.Enabled
 		if err := m.siteRepo.SetEnabled(site.ID, enabled); err != nil {
 			m.status = "更新站点状态失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		site.Enabled = enabled
@@ -501,7 +572,7 @@ func (m Model) updateSiteList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "已禁用站点：" + site.PrimaryDomain
 		}
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 	}
 	return m, nil
 }
@@ -514,13 +585,13 @@ func (m Model) updateDeleteAppConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		if m.repo == nil {
 			m.status = "数据库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		deletedSites, err := m.repo.DeleteApp(m.managedApp.ID)
 		if err != nil {
 			m.status = "删除应用失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.apps = m.loadApps()
@@ -530,7 +601,7 @@ func (m Model) updateDeleteAppConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.managedSites = nil
 		m.screen = appManagementScreen
 		m.status = fmt.Sprintf("已删除应用及 %d 个站点", deletedSites)
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 	}
 	return m, nil
 }
@@ -626,24 +697,24 @@ func (m Model) updateRootInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		root := strings.TrimSpace(m.rootInput.Value())
 		if root == "" {
 			m.status = "根目录不能为空"
-			m.appendLog("扫描失败：根目录为空")
+			m.logInfo("扫描失败：根目录为空")
 			return m, nil
 		}
 		if m.providers == nil || len(m.providers.All()) == 0 {
 			m.status = "未注册应用扫描 Provider"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		if m.repo != nil {
 			disabledApps, err := m.repo.DisableMissingApps()
 			if err != nil {
 				m.status = "检查已登记应用失败：" + err.Error()
-				m.appendLog(m.status)
+				m.logInfo(m.status)
 				return m, nil
 			}
 			if len(disabledApps) > 0 {
 				m.apps = m.loadApps()
-				m.appendLog(fmt.Sprintf("已禁用 %d 个不存在的应用目录", len(disabledApps)))
+				m.logInfo(fmt.Sprintf("已禁用 %d 个不存在的应用目录", len(disabledApps)))
 			}
 		}
 		m.scanning = true
@@ -651,7 +722,7 @@ func (m Model) updateRootInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scanProgressCh = make(chan app_provider.Progress, 1)
 		m.rootInput.Blur()
 		m.status = "开始扫描，请稍候"
-		m.appendLog("开始扫描根目录：" + root)
+		m.logInfo("开始扫描根目录：" + root)
 		return m, tea.Batch(m.scanApps(root, m.scanProgressCh), scanProgressTick())
 	default:
 		var cmd tea.Cmd
@@ -704,7 +775,7 @@ func (m *Model) readScanProgress() {
 		case update := <-m.scanProgressCh:
 			m.scanProgress = update
 			if update.Warning != "" {
-				m.appendLog("扫描提示：" + update.Warning)
+				m.logInfo("扫描提示：" + update.Warning)
 			}
 		default:
 			return
@@ -748,22 +819,22 @@ func (m Model) updateSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if len(apps) == 0 {
 			m.status = "请至少勾选一个应用"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		if m.repo == nil {
 			m.status = "数据库未初始化"
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		if err := m.repo.Add(apps); err != nil {
 			m.status = "保存失败：" + err.Error()
-			m.appendLog(m.status)
+			m.logInfo(m.status)
 			return m, nil
 		}
 		m.apps = m.loadApps()
 		m.status = fmt.Sprintf("成功保存 %d 个应用", len(apps))
-		m.appendLog(m.status)
+		m.logInfo(m.status)
 		m.screen = homeScreen
 	}
 	return m, nil
@@ -771,6 +842,13 @@ func (m Model) updateSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // logBriefMessageRunes 限制界面日志单条的字符数，避免长错误占满日志区域。
 const logBriefMessageRunes = 100
+
+// logInfo 将状态消息交给统一 logger；logger 的 TUI sink 负责更新界面日志。
+func (m *Model) logInfo(message string) {
+	if m.logger != nil {
+		m.logger.Info("%s", message)
+	}
+}
 
 // briefLogMessage 生成界面显示用的简要信息：只保留首行并限制长度。
 // 命令输出的详细堆栈写入日志文件，界面仅提示查看日志，避免多行输出打乱布局。
@@ -787,14 +865,11 @@ func briefLogMessage(message string) string {
 	}
 }
 
-func (m *Model) appendLog(message string) {
+func (m *Model) appendDisplayLog(message string) {
 	m.logs = append(m.logs, time.Now().Format("15:04:05")+" "+briefLogMessage(message))
 	m.logScroll = 0
 	if len(m.logs) > 100 {
 		m.logs = m.logs[len(m.logs)-100:]
-	}
-	if m.logger != nil {
-		m.logger.Println(message)
 	}
 }
 
@@ -817,15 +892,20 @@ func (m Model) View() string {
 	if width <= 0 {
 		width = 80
 	}
-	menu := make([]string, 0, len(menuItems))
-	for i, item := range menuItems {
+	displayItems := append(append([]string{}, menuItems...), "更新版本")
+	menu := make([]string, 0, len(displayItems))
+	for i, item := range displayItems {
 		prefix := "  "
 		if i == m.menuCursor {
 			prefix = "> "
 		}
 		menu = append(menu, prefix+item)
 	}
-	header := renderTitle(width)
+	updateVersion := ""
+	if m.updateResult != nil && m.updateResult.Version != version.String() {
+		updateVersion = m.updateResult.Version
+	}
+	header := renderTitleWithUpdate(width, updateVersion)
 	top := "\n" + header
 	menuContent := strings.Join(menu, "    ") + "\n" + menuHelp(m.menuCursor)
 	menuView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).Width(width - 5).MaxWidth(width - 3).Render(menuContent)
@@ -903,7 +983,7 @@ func (m Model) View() string {
 	case deleteAppConfirmScreen:
 		center = fmt.Sprintf("确认删除应用\n\n%s\n\n该应用及其 %d 个站点记录将被删除。\n\n按 y 确认，按 Esc 取消", m.managedApp.RootDir, m.managedApp.SiteCount)
 	case certdSettingsScreen:
-		center = "Certd 接口设置\n\nBaseURL\n" + m.certdInputs[0].View() + "\n\nKeyId\n" + m.certdInputs[1].View() + "\n\nKeySecret\n" + m.certdInputs[2].View() + "\n\n本机名称（可选）\n" + m.certdInputs[3].View() + "\n\n最长等待时长（分钟，默认 10）\n" + m.certdInputs[4].View() + "\n\nTab/上下键切换输入框 · Enter 保存 · Esc 返回" + certdSettingsPasteHint()
+		center = "Certd 接口设置\n\nBaseURL\n" + m.certdInputs[0].View() + "\n\nKeyId\n" + m.certdInputs[1].View() + "\n\nKeySecret\n" + m.certdInputs[2].View() + "\n\n本机名称（可选）\n" + m.certdInputs[3].View() + "\n\n最长等待时长（分钟，默认 10）\n" + m.certdInputs[4].View() + "\n\nTab/上下键切换输入框 · Enter 保存 · Esc 返回"
 	default:
 		rootWidth := applicationRootColumnWidth(width)
 		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}
@@ -987,6 +1067,7 @@ func menuHelp(index int) string {
 		"检查 Certd 证书并部署到已启用的 HTTPS 站点",
 		"退出终端界面并启动定时同步任务",
 		"用系统默认程序打开日志文件 logs/client.log，查看详细错误",
+		"从 AtomGit 和 GitHub 测速并下载最新版本，自动替换后重启",
 	}
 	if index < 0 || index >= len(help) {
 		return ""
@@ -1053,10 +1134,18 @@ func applicationTableHeader(rootWidth int) string {
 }
 
 func renderTitle(width int) string {
+	return renderTitleWithUpdate(width, "")
+}
+
+func renderTitleWithUpdate(width int, updateVersion string) string {
 	brand := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81")).Render("Certd Client")
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  ")
 	subtitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("229")).Render("证书管理工具客户端")
-	build := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  v" + version.String())
+	versionText := "v" + version.String()
+	if updateVersion != "" {
+		versionText += "（有更新 v" + updateVersion + "）"
+	}
+	build := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  ·  " + versionText)
 	title := brand + divider + subtitle + build
 	availableWidth := width - 1
 	padding := (availableWidth - lipgloss.Width(title)) / 2

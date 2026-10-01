@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,23 +90,6 @@ func TestVersionMessage(t *testing.T) {
 	}
 }
 
-func TestNewConsoleAndLogOutputWritesBothDestinations(t *testing.T) {
-	logger := &capturingLogger{}
-	var console []string
-	output := newConsoleAndLogOutput(logger, func(values ...any) {
-		console = append(console, fmt.Sprint(values...))
-	})
-
-	output("定时任务启动成功")
-
-	if len(logger.lines) != 1 || logger.lines[0] != "定时任务启动成功" {
-		t.Fatalf("expected logger output, got %#v", logger.lines)
-	}
-	if len(console) != 1 || console[0] != "定时任务启动成功" {
-		t.Fatalf("expected console output, got %#v", console)
-	}
-}
-
 func TestRegisteredProvidersExcludeIISOutsideWindows(t *testing.T) {
 	if _, found := registeredProviders("linux").Find("iis"); found {
 		t.Fatal("IIS provider must not be registered on Linux")
@@ -133,12 +115,4 @@ func TestOpenLogFileCreatesFile(t *testing.T) {
 	if len(content) != 0 {
 		t.Fatalf("expected empty log file on first open, got %q", content)
 	}
-}
-
-type capturingLogger struct {
-	lines []string
-}
-
-func (logger *capturingLogger) Println(values ...any) {
-	logger.lines = append(logger.lines, fmt.Sprint(values...))
 }

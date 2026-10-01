@@ -9,9 +9,11 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/certd/certd-client/internal/certd"
+	"github.com/certd/certd-client/internal/logging"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
 	"github.com/certd/certd-client/internal/version"
@@ -42,20 +44,21 @@ type AppStore interface {
 }
 
 type Reporter struct {
+	mu        sync.Mutex
 	settings  SettingsStore
 	apps      AppStore
 	newClient ClientFactory
-	logf      func(format string, args ...any)
+	logger    logging.Log
 }
 
-func New(settings SettingsStore, apps AppStore, logf func(format string, args ...any)) *Reporter {
+func New(settings SettingsStore, apps AppStore, logger logging.Log) *Reporter {
 	return &Reporter{
 		settings: settings,
 		apps:     apps,
 		newClient: func(config certd.Config) HeartbeatClient {
 			return certd.NewClient(config)
 		},
-		logf: logf,
+		logger: logger,
 	}
 }
 
@@ -76,6 +79,8 @@ func (r *Reporter) Run(ctx context.Context) {
 
 // Report 上报一次心跳；任何一步失败只记录日志，不影响后续上报。
 func (r *Reporter) Report(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -87,7 +92,7 @@ func (r *Reporter) Report(ctx context.Context) {
 	}
 	setting, err := r.loadCertdSetting()
 	if err != nil {
-		r.log("心跳：读取 Certd 接口设置失败：%v", err)
+		r.loggerError("心跳：读取 Certd 接口设置失败：%v", err)
 		return
 	}
 	if setting.BaseURL == "" || setting.KeyId == "" || setting.KeySecret == "" {
@@ -95,12 +100,12 @@ func (r *Reporter) Report(ctx context.Context) {
 	}
 	clientId, err := r.ensureClientId()
 	if err != nil {
-		r.log("心跳：获取客户端标识失败：%v", err)
+		r.loggerError("心跳：获取客户端标识失败：%v", err)
 		return
 	}
 	stats, err := r.collectStats()
 	if err != nil {
-		r.log("心跳：读取应用列表失败：%v", err)
+		r.loggerError("心跳：读取应用列表失败：%v", err)
 		return
 	}
 	client := r.newClient(certd.Config{BaseURL: setting.BaseURL, KeyId: setting.KeyId, KeySecret: setting.KeySecret})
@@ -115,11 +120,14 @@ func (r *Reporter) Report(ctx context.Context) {
 		SyncedSiteCount: stats.syncedSiteCount,
 		FailedSiteCount: stats.failedSiteCount,
 	}
+	r.loggerInfo("正在上报心跳：机器 %s，版本 %s，应用 %d，站点 %d，HTTPS %d，已同步 %d，异常 %d",
+		payload.MachineName, payload.Version, payload.AppCount, payload.SiteCount,
+		payload.HttpsSiteCount, payload.SyncedSiteCount, payload.FailedSiteCount)
 	if err := client.Heartbeat(payload); err != nil {
-		r.log("心跳上报失败：%v", err)
+		r.loggerError("心跳上报失败：%v", err)
 		return
 	}
-	r.log("心跳上报成功：站点 %d，HTTPS %d", stats.siteCount, stats.httpsSiteCount)
+	r.loggerInfo("心跳上报成功：站点 %d，HTTPS %d", stats.siteCount, stats.httpsSiteCount)
 }
 
 func (r *Reporter) loadCertdSetting() (syncservice.CertdSetting, error) {
@@ -192,9 +200,15 @@ func (r *Reporter) collectStats() (clientStats, error) {
 	return stats, nil
 }
 
-func (r *Reporter) log(format string, args ...any) {
-	if r.logf != nil {
-		r.logf(format, args...)
+func (r *Reporter) loggerInfo(format string, args ...any) {
+	if r.logger != nil {
+		r.logger.Info(format, args...)
+	}
+}
+
+func (r *Reporter) loggerError(format string, args ...any) {
+	if r.logger != nil {
+		r.logger.Error(format, args...)
 	}
 }
 
