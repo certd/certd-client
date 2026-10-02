@@ -1,3 +1,8 @@
+## [0.4.0] - 2026-10-03
+
+- feat: 新增客户端自动更新功能，支持从多渠道测速更新 (729e1498)
+- feat: 新增客户端心跳上报、日志查看与Windows命令输出解码功能 (5eccf869)
+- perf(syncservice,certd): add pipeline id support for certificate apply polling (8ab1da09)
 ## [0.3.0] - 2026-08-15
 
 - fix(tui, install): 修复多个功能缺陷并优化界面显示 (078feb19)
