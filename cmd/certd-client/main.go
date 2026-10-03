@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -13,13 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/certd/certd-client/internal/app_provider"
-	"github.com/certd/certd-client/internal/app_provider/apache"
-	"github.com/certd/certd-client/internal/app_provider/iis"
-	"github.com/certd/certd-client/internal/app_provider/nginx"
 	"github.com/certd/certd-client/internal/clientreport"
 	"github.com/certd/certd-client/internal/elevation"
 	"github.com/certd/certd-client/internal/logging"
+	"github.com/certd/certd-client/internal/providers"
+	"github.com/certd/certd-client/internal/schedule"
+	systemservice "github.com/certd/certd-client/internal/service"
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
@@ -27,7 +27,6 @@ import (
 	"github.com/certd/certd-client/internal/updater"
 	"github.com/certd/certd-client/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/robfig/cron/v3"
 )
 
 func main() {
@@ -50,6 +49,29 @@ func main() {
 	}
 	if isVersionCommand(os.Args[1:]) {
 		fmt.Println(versionMessage())
+		return
+	}
+	// service 子命令：安装/卸载/启停在 Windows 需要管理员（经 UAC 重启），
+	// 而 service run 由系统服务控制器以已提权身份启动，绝不能再次触发提权。
+	if action, ok := systemservice.Classify(os.Args[1:]); ok {
+		if action != "run" && runtime.GOOS == "windows" {
+			relaunched, err := elevation.New().Request()
+			if err != nil {
+				reportStartupError("请求管理员权限失败：" + err.Error())
+				os.Exit(1)
+			}
+			if relaunched {
+				return
+			}
+		}
+		if action == "help" {
+			fmt.Println(systemservice.Usage())
+			return
+		}
+		if err := systemservice.Run(os.Args[1:]); err != nil {
+			reportStartupError("服务操作失败：" + err.Error())
+			os.Exit(1)
+		}
 		return
 	}
 	if runtime.GOOS == "windows" {
@@ -122,8 +144,8 @@ func run(args []string) error {
 	repo := storeRepo.NewTargetAppRepository(db)
 	siteRepo := storeRepo.NewAppSiteRepository(db)
 	settingsRepo := storeRepo.NewSettingsRepository(db)
-	providers := registeredProviders(runtime.GOOS)
-	service := syncservice.New(siteRepo, providers, nil)
+	registry := providers.Registered(runtime.GOOS)
+	service := syncservice.New(siteRepo, registry, nil)
 	reporter := clientreport.New(settingsRepo, repo, logger)
 	if len(args) > 0 && args[0] != "tui" {
 		switch strings.ToLower(args[0]) {
@@ -135,11 +157,20 @@ func run(args []string) error {
 			reporter.Report(context.Background())
 			return syncResultError(result)
 		case "start":
-			schedule, expression, err := parseStartSchedule(args[1:], time.Now())
+			cronFlag, err := parseStartCronFlag(args[1:])
 			if err != nil {
 				return err
 			}
-			return runStart(schedule, expression, service, repo, settingsRepo, logger, reporter)
+			expression, disabled, err := resolveStartExpression(cronFlag, settingsRepo, time.Now())
+			if err != nil {
+				return err
+			}
+			if disabled {
+				logger.SetConsole(os.Stdout)
+				logger.Info("%s", startDisabledMessage)
+				return nil
+			}
+			return runStart(expression, service, repo, settingsRepo, logger, reporter)
 		case "version":
 			fmt.Println(versionMessage())
 			return nil
@@ -151,29 +182,97 @@ func run(args []string) error {
 	heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
 	// WithoutCatchPanics 让 panic 传播到 main 的 recover，从而写入日志文件；
 	// 否则 bubbletea 会吞掉 panic 只打印到 stdout，logs/client.log 留不下崩溃记录。
-	tuiModel := tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, providers)
+	tuiModel := tui.NewModelWithSettings(repo, siteRepo, settingsRepo, logger, registry)
 	tuiModel.SetHeartbeatReporter(reporter)
+	tuiModel.SetServiceStarter(func() error { return startBackgroundService(settingsRepo, time.Now) })
+	tuiModel.SetServiceElevator(func() (*exec.Cmd, error) { return prepareTimedServiceElevation(settingsRepo, time.Now) })
+	tuiModel.SetServiceAction(systemservice.ControlService)
+	tuiModel.SetServiceActionElevator(prepareServiceActionElevation)
 	p := tea.NewProgram(tuiModel, tea.WithAltScreen(), tea.WithoutCatchPanics())
 	// p.Send 可能等待当前 Update 返回；异步投递避免 Update 内写日志时与自身死锁。
 	logger.SetTUISink(func(message string) {
 		go p.Send(tui.LogMessage(message))
 	})
 	go reporter.Run(heartbeatCtx)
-	finalModel, err := p.Run()
-	if err != nil {
-		heartbeatCancel()
+	_, err = p.Run()
+	heartbeatCancel()
+	return err
+}
+
+// startBackgroundService 确保定时计划处于启用状态，然后将客户端注册并启动为系统服务。
+// 服务已注册时仅确保启动，不会重复注册；适用于已具备权限的场景（Windows 已经 UAC 提权、Linux 已 root）。
+func startBackgroundService(settings *storeRepo.SettingsRepository, now func() time.Time) error {
+	if err := enableTimedSchedule(settings, now); err != nil {
 		return err
 	}
-	if requested, ok := finalModel.(interface{ StartRequested() bool }); ok && requested.StartRequested() {
-		heartbeatCancel()
-		schedule, expression, err := parseStartSchedule(nil, time.Now())
+	return systemservice.EnsureRunning()
+}
+
+// enableTimedSchedule 读取并启用定时计划（补齐合法 Cron）后保存回设置表。
+// 仅写用户自己的数据库，不需要提权，由父进程以当前用户身份完成。
+func enableTimedSchedule(settings *storeRepo.SettingsRepository, now func() time.Time) error {
+	value := ""
+	if settings != nil {
+		read, err := settings.GetSetting(schedule.SettingKey)
 		if err != nil {
-			return err
+			return fmt.Errorf("读取定时设置失败：%w", err)
 		}
-		return runStart(schedule, expression, service, repo, settingsRepo, logger, reporter)
+		value = read
 	}
-	heartbeatCancel()
+	setting, err := schedule.Parse(value)
+	if err != nil {
+		setting = schedule.Setting{}
+	}
+	setting.Cron = schedule.ResolveExpression(setting.Cron, now())
+	setting.Enabled = true
+	content, err := setting.Marshal()
+	if err != nil {
+		return err
+	}
+	if settings != nil {
+		if err := settings.SaveSetting(schedule.SettingKey, content); err != nil {
+			return fmt.Errorf("保存定时设置失败：%w", err)
+		}
+	}
 	return nil
+}
+
+// timedServiceElevationNeeded 判断是否需要通过 sudo 提权安装系统服务：
+// 仅 Linux 且当前非 root 时需要（Windows 启动已经 UAC 提权，Linux 已 root 可直接安装）。
+func timedServiceElevationNeeded(goos string, isRoot bool) bool {
+	return goos == "linux" && !isRoot
+}
+
+// serviceElevationArgs 返回以 sudo 提权执行系统服务安装与启动的命令行参数。
+func serviceElevationArgs(execPath string) []string {
+	return []string{execPath, "service", "ensure"}
+}
+
+// prepareTimedServiceElevation 在需要提权时先以当前用户启用定时计划，再返回待以 sudo 执行的命令；
+// 不需要提权时返回 (nil, nil)，由界面回退到普通启动流程。
+func prepareTimedServiceElevation(settings *storeRepo.SettingsRepository, now func() time.Time) (*exec.Cmd, error) {
+	if !timedServiceElevationNeeded(runtime.GOOS, os.Geteuid() == 0) {
+		return nil, nil
+	}
+	if err := enableTimedSchedule(settings, now); err != nil {
+		return nil, err
+	}
+	execPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("获取程序路径失败：%w", err)
+	}
+	return exec.Command("sudo", serviceElevationArgs(execPath)...), nil
+}
+
+func prepareServiceActionElevation(action string) (*exec.Cmd, error) {
+	if !timedServiceElevationNeeded(runtime.GOOS, os.Geteuid() == 0) {
+		return nil, nil
+	}
+	execPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("获取程序路径失败：%w", err)
+	}
+	return exec.Command("sudo", execPath, "service", action), nil
 }
 
 func isVersionCommand(args []string) bool {
@@ -184,28 +283,48 @@ func versionMessage() string {
 	return "certd-client " + version.String()
 }
 
-func parseStartSchedule(args []string, now time.Time) (cron.Schedule, string, error) {
+// startDisabledMessage 用于未显式传入 --cron 且定时设置被禁用时的提示。
+const startDisabledMessage = "定时同步已在设置中禁用，可在“定时设置”中启用，或使用 certd-client start --cron \"分 时 日 月 周\" 强制运行"
+
+// parseStartCronFlag 解析 start 命令的 --cron 参数，未提供时返回空串。
+func parseStartCronFlag(args []string) (string, error) {
 	flags := flag.NewFlagSet("start", flag.ContinueOnError)
 	flags.SetOutput(os.Stdout)
 	value := flags.String("cron", "", "Cron 表达式，例如 '30 2 * * *'")
 	if err := flags.Parse(args); err != nil {
-		return nil, "", err
+		return "", err
 	}
 	if flags.NArg() > 0 {
-		return nil, "", fmt.Errorf("不支持的 start 参数：%s", strings.Join(flags.Args(), " "))
+		return "", fmt.Errorf("不支持的 start 参数：%s", strings.Join(flags.Args(), " "))
 	}
-	expression := strings.TrimSpace(*value)
-	if expression == "" {
-		expression = fmt.Sprintf("%d %d * * *", now.Minute(), now.Hour())
-	}
-	schedule, err := cron.ParseStandard(expression)
-	if err != nil {
-		return nil, "", fmt.Errorf("解析 Cron 表达式失败：%w", err)
-	}
-	return schedule, expression, nil
+	return strings.TrimSpace(*value), nil
 }
 
-func runStart(schedule cron.Schedule, expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger *logging.Logger, reporter *clientreport.Reporter) error {
+// resolveStartExpression 优先使用显式 --cron；否则读取数据库定时设置。
+// 返回的 disabled 为 true 表示未显式传参且设置中已禁用定时同步。
+func resolveStartExpression(cronFlag string, settings *storeRepo.SettingsRepository, now time.Time) (string, bool, error) {
+	if cronFlag != "" {
+		return cronFlag, false, nil
+	}
+	value := ""
+	if settings != nil {
+		read, err := settings.GetSetting(schedule.SettingKey)
+		if err != nil {
+			return "", false, fmt.Errorf("读取定时设置失败：%w", err)
+		}
+		value = read
+	}
+	setting, err := schedule.Parse(value)
+	if err != nil {
+		return "", false, err
+	}
+	if !setting.Enabled {
+		return "", true, nil
+	}
+	return schedule.ResolveExpression(setting.Cron, now), false, nil
+}
+
+func runStart(expression string, service *syncservice.Service, apps *storeRepo.TargetAppRepository, settings *storeRepo.SettingsRepository, logger *logging.Logger, reporter *clientreport.Reporter) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.SetConsole(os.Stdout)
@@ -215,54 +334,7 @@ func runStart(schedule cron.Schedule, expression string, service *syncservice.Se
 		result := service.RunConfigured(ctx, apps, settings, func(message string) { output(message) })
 		writeSyncSummary(output, result)
 	}
-	output(startSuccessMessage(expression))
-	run()
-	if ctx.Err() != nil {
-		output("定时同步已停止")
-		return nil
-	}
-	next := schedule.Next(time.Now())
-	if next.IsZero() {
-		return fmt.Errorf("Cron 表达式没有下一次执行时间：%s", expression)
-	}
-	output(nextExecutionMessage(next))
-	for {
-		wait := time.Until(next)
-		if wait < 0 {
-			wait = 0
-		}
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			output("定时同步已停止")
-			return nil
-		case <-timer.C:
-			run()
-			if ctx.Err() != nil {
-				output("定时同步已停止")
-				return nil
-			}
-			next = schedule.Next(time.Now())
-			if next.IsZero() {
-				return fmt.Errorf("Cron 表达式没有下一次执行时间：%s", expression)
-			}
-			output(nextExecutionMessage(next))
-		}
-	}
-}
-
-func startSuccessMessage(expression string) string {
-	return "定时任务启动成功：" + expression
-}
-
-func nextExecutionMessage(next time.Time) string {
-	return "下次执行时间：" + next.Format(time.DateTime)
+	return schedule.Run(ctx, expression, run, func(message string) { output(message) })
 }
 
 func writeSyncSummary(output func(...any), result syncservice.Result) {
@@ -282,12 +354,4 @@ func syncResultError(result syncservice.Result) error {
 		return nil
 	}
 	return fmt.Errorf("证书同步失败 %d 项：%s", len(result.Errors), strings.Join(result.Errors, "；"))
-}
-
-func registeredProviders(goos string) *app_provider.Registry {
-	providers := []app_provider.Provider{nginx.New(), apache.New()}
-	if goos == "windows" {
-		providers = append(providers, iis.New())
-	}
-	return app_provider.NewRegistry(providers...)
 }

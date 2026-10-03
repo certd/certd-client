@@ -207,6 +207,18 @@ func Download(ctx context.Context, client *http.Client, channel Channel) (string
 }
 
 func validateArchive(path, goos string) error {
+	found := false
+	if err := walkExecutable(path, goos, func(io.Reader, os.FileMode) error { found = true; return nil }); err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("归档中没有 %s", executableName(goos))
+	}
+	return nil
+}
+
+func walkExecutable(path, goos string, visit func(io.Reader, os.FileMode) error) error {
+	name := executableName(goos)
 	if goos == "windows" {
 		z, err := zip.OpenReader(path)
 		if err != nil {
@@ -214,11 +226,17 @@ func validateArchive(path, goos string) error {
 		}
 		defer z.Close()
 		for _, f := range z.File {
-			if filepath.Base(f.Name) == executableName(goos) {
-				return nil
+			if filepath.Base(f.Name) == name {
+				r, err := f.Open()
+				if err != nil {
+					return err
+				}
+				err = visit(r, 0755)
+				r.Close()
+				return err
 			}
 		}
-		return fmt.Errorf("ZIP 中没有 %s", executableName(goos))
+		return nil
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -232,18 +250,17 @@ func validateArchive(path, goos string) error {
 	defer gz.Close()
 	tr := tar.NewReader(gz)
 	for {
-		h, e := tr.Next()
-		if e == io.EOF {
-			break
-		}
-		if e != nil {
-			return e
-		}
-		if filepath.Base(h.Name) == executableName(goos) {
+		h, err := tr.Next()
+		if err == io.EOF {
 			return nil
 		}
+		if err != nil {
+			return err
+		}
+		if filepath.Base(h.Name) == name {
+			return visit(tr, os.FileMode(h.Mode))
+		}
 	}
-	return fmt.Errorf("tar.gz 中没有 %s", executableName(goos))
 }
 
 func executableName(goos string) string {
@@ -264,64 +281,17 @@ func InstallArchive(archive, executable string) error {
 		return err
 	}
 	defer os.RemoveAll(temp)
-	if runtime.GOOS == "windows" {
-		z, e := zip.OpenReader(archive)
-		if e != nil {
-			return e
+	err = walkExecutable(archive, runtime.GOOS, func(src io.Reader, mode os.FileMode) error {
+		out, err := os.OpenFile(filepath.Join(temp, executableName(runtime.GOOS)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+		if err != nil {
+			return err
 		}
-		defer z.Close()
-		for _, f := range z.File {
-			dst := filepath.Join(temp, filepath.Base(f.Name))
-			if filepath.Base(f.Name) != executableName(runtime.GOOS) {
-				continue
-			}
-			src, e := f.Open()
-			if e != nil {
-				return e
-			}
-			out, e := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
-			if e == nil {
-				_, e = io.Copy(out, src)
-				out.Close()
-			}
-			src.Close()
-			if e != nil {
-				return e
-			}
-		}
-	} else {
-		f, e := os.Open(archive)
-		if e != nil {
-			return e
-		}
-		defer f.Close()
-		gz, e := gzip.NewReader(f)
-		if e != nil {
-			return e
-		}
-		defer gz.Close()
-		tr := tar.NewReader(gz)
-		for {
-			h, e := tr.Next()
-			if e == io.EOF {
-				break
-			}
-			if e != nil {
-				return e
-			}
-			if filepath.Base(h.Name) != executableName(runtime.GOOS) {
-				continue
-			}
-			out, e := os.OpenFile(filepath.Join(temp, executableName(runtime.GOOS)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode))
-			if e != nil {
-				return e
-			}
-			_, e = io.Copy(out, tr)
-			out.Close()
-			if e != nil {
-				return e
-			}
-		}
+		defer out.Close()
+		_, err = io.Copy(out, src)
+		return err
+	})
+	if err != nil {
+		return err
 	}
 	newBinary := filepath.Join(temp, executableName(runtime.GOOS))
 	if _, err = os.Stat(newBinary); err != nil {

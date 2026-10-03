@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/certd/certd-client/internal/app_provider/apache"
 	"github.com/certd/certd-client/internal/app_provider/nginx"
 	"github.com/certd/certd-client/internal/logging"
+	"github.com/certd/certd-client/internal/schedule"
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
@@ -79,7 +82,7 @@ func TestAppendDisplayLogAddsDisplayTime(t *testing.T) {
 }
 
 func TestUpdateAddsExternalLogMessage(t *testing.T) {
-	model := NewModel(nil, nil, nil)
+	model := NewModel(nil, nil, nil, nil)
 	updated, _ := model.Update(LogMessage("证书同步失败：应用[iis] 部署失败\n    + CategoryInfo : OperationStopped\n    + FullyQualifiedErrorId : ValueDoesNotFallWithinTheExpectedRange"))
 	got := updated.(Model).logs
 	if len(got) != 1 || !strings.Contains(got[0], "证书同步失败") {
@@ -284,11 +287,14 @@ func TestStartingAppScanDisablesMissingApplications(t *testing.T) {
 }
 
 func TestMenuIncludesSiteScan(t *testing.T) {
-	if len(menuItems) != 7 || menuItems[1] != "站点扫描" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时同步" {
-		t.Fatalf("expected site scan menu item, got %#v", menuItems)
+	if len(menuItems) != 7 || menuItems[1] != "站点扫描" || menuItems[3] != "Certd接口设置" || menuItems[4] != "同步证书" || menuItems[5] != "定时执行" || menuItems[openLogMenuIndex] != "打开日志" {
+		t.Fatalf("expected full menu items, got %#v", menuItems)
 	}
-	if !strings.Contains(menuHelp(5), "定时") {
-		t.Fatalf("expected scheduled sync help, got %q", menuHelp(5))
+	if !strings.Contains(menuHelp(scheduledSyncMenuIndex), "启动") {
+		t.Fatalf("expected scheduled execution help, got %q", menuHelp(scheduledSyncMenuIndex))
+	}
+	if scheduledActionItems[4] != "服务管理" || !strings.Contains(scheduledActionHelp(4), "系统服务") {
+		t.Fatalf("expected service management under scheduled execution with help, items=%#v help=%q", scheduledActionItems, scheduledActionHelp(4))
 	}
 }
 
@@ -372,25 +378,164 @@ func TestOpenLogMenuStaysAvailableWhileTaskRunning(t *testing.T) {
 	}
 }
 
-func TestScheduledSyncMenuRequestsStartMode(t *testing.T) {
-	model := Model{menuCursor: 5}
+func TestScheduledSyncMenuAsksForServiceConfirmation(t *testing.T) {
+	model := NewModelWithSettings(nil, nil, nil, nil, testRegistry())
+	model.menuCursor = scheduledSyncMenuIndex
 
 	updated, command := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
 
-	if !model.StartRequested() {
-		t.Fatal("expected scheduled sync menu to request start mode")
+	if model.screen != scheduledActionsScreen || len(scheduledActionItems) != 5 || scheduledActionItems[0] != "启动定时同步服务" || scheduledActionItems[1] != "定时设置" || scheduledActionItems[2] != "停止服务" || scheduledActionItems[3] != "卸载服务" || scheduledActionItems[4] != "服务管理" {
+		t.Fatalf("expected five scheduled execution actions, screen=%v items=%#v", model.screen, scheduledActionItems)
+	}
+	if model.StartRequested() {
+		t.Fatal("定时同步应先弹出确认，不应直接切换 start 模式")
+	}
+	if command != nil {
+		t.Fatal("确认前不应执行任何命令")
+	}
+}
+
+func TestScheduledSyncConfirmStartsServiceAndKeepsInterfaceOpen(t *testing.T) {
+	var output bytes.Buffer
+	called := false
+	model := Model{screen: serviceConfirmScreen, logger: &testTUILogger{output: &output}, startService: func() error {
+		called = true
+		return nil
+	}}
+	updated, command := model.updateServiceConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("确认后应返回启动服务命令")
+	}
+	if _, ok := command().(serviceActionResultMsg); !ok {
+		t.Fatalf("expected serviceActionResultMsg, got %#v", command())
+	}
+	if !called {
+		t.Fatal("expected injected service starter to be called")
+	}
+	updated, command = model.Update(serviceActionResultMsg{action: "ensure"})
+	model = updated.(Model)
+	if command != nil || model.screen != homeScreen {
+		t.Fatal("服务启动成功后应留在 TUI 首页，不能退出")
+	}
+	if !strings.Contains(model.status, "服务已启动") || !strings.Contains(model.status, "Ctrl+C") {
+		t.Fatalf("应提示服务已启动并说明 Ctrl+C 退出方式，got %q", model.status)
+	}
+	if !strings.Contains(output.String(), "Ctrl+C") {
+		t.Fatalf("启动成功提示应写入日志，got %q", output.String())
+	}
+}
+
+func TestScheduledSyncConfirmCancelReturnsHome(t *testing.T) {
+	model := Model{screen: serviceConfirmScreen}
+	updated, command := model.updateServiceConfirm(tea.KeyMsg{Type: tea.KeyEscape})
+	model = updated.(Model)
+	if model.screen != homeScreen {
+		t.Fatalf("expected esc to return home, got %v", model.screen)
+	}
+	if command != nil {
+		t.Fatal("取消不应执行命令")
+	}
+}
+
+func TestScheduledSyncFailureKeepsTUIOpen(t *testing.T) {
+	model := NewModelWithSettings(nil, nil, nil, nil, testRegistry())
+	updated, command := model.Update(serviceActionResultMsg{action: "ensure", err: errors.New("需要管理员权限")})
+	model = updated.(Model)
+	if command != nil {
+		t.Fatal("服务启动失败不应退出 TUI")
+	}
+	if !strings.Contains(model.status, "需要管理员权限") {
+		t.Fatalf("expected failure reason shown, got %q", model.status)
+	}
+}
+
+func TestScheduledSyncFailureIsNeverReportedAsSuccess(t *testing.T) {
+	var output bytes.Buffer
+	model := Model{logger: &testTUILogger{output: &output}}
+	updated, command := model.Update(serviceActionResultMsg{action: "ensure", err: errors.New("注册服务失败: access denied")})
+	model = updated.(Model)
+	if command != nil || !strings.Contains(model.status, "失败") || !strings.Contains(model.status, "access denied") {
+		t.Fatalf("expected startup failure and reason, status=%q command=%v", model.status, command)
+	}
+	if strings.Contains(model.status, "服务已启动") || !strings.Contains(output.String(), "access denied") {
+		t.Fatalf("failure must not be logged as success and must retain its cause, status=%q log=%q", model.status, output.String())
+	}
+}
+
+func TestScheduledSyncConfirmElevatesViaSudoWhenNeeded(t *testing.T) {
+	var output bytes.Buffer
+	elevateCalled := false
+	starterCalled := false
+	model := Model{screen: serviceConfirmScreen, logger: &testTUILogger{output: &output},
+		serviceElevator: func() (*exec.Cmd, error) {
+			elevateCalled = true
+			return exec.Command("echo", "placeholder-not-run"), nil
+		},
+		startService: func() error {
+			starterCalled = true
+			return nil
+		}}
+	updated, command := model.updateServiceConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if !elevateCalled {
+		t.Fatal("expected service elevator to be consulted")
+	}
+	if starterCalled {
+		t.Fatal("提权路径不应直接调用普通启动器")
 	}
 	if command == nil {
-		t.Fatal("expected scheduled sync menu to quit the TUI")
+		t.Fatal("需要提权时应返回 tea.ExecProcess 命令")
 	}
-	if _, ok := command().(tea.QuitMsg); !ok {
-		t.Fatalf("expected TUI quit command, got %#v", command())
+	if !strings.Contains(model.status, "sudo") {
+		t.Fatalf("提权提示应包含 sudo，got %q", model.status)
+	}
+}
+
+func TestScheduledSyncConfirmElevationPrepFailureShowsError(t *testing.T) {
+	var output bytes.Buffer
+	model := Model{screen: serviceConfirmScreen, logger: &testTUILogger{output: &output},
+		serviceElevator: func() (*exec.Cmd, error) {
+			return nil, errors.New("保存定时设置失败")
+		}}
+	updated, command := model.updateServiceConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command != nil {
+		t.Fatal("提权准备失败不应执行命令")
+	}
+	if model.screen != serviceConfirmScreen {
+		t.Fatalf("提权准备失败应留在确认界面，got %v", model.screen)
+	}
+	if !strings.Contains(model.status, "保存定时设置失败") {
+		t.Fatalf("应显示准备失败原因，got %q", model.status)
+	}
+}
+
+func TestScheduledSyncConfirmNoElevationFallsBackToStarter(t *testing.T) {
+	var output bytes.Buffer
+	starterCalled := false
+	model := Model{screen: serviceConfirmScreen, logger: &testTUILogger{output: &output},
+		serviceElevator: func() (*exec.Cmd, error) { return nil, nil },
+		startService: func() error {
+			starterCalled = true
+			return nil
+		}}
+	updated, command := model.updateServiceConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("无需提权时应返回普通启动命令")
+	}
+	if _, ok := command().(serviceActionResultMsg); !ok {
+		t.Fatalf("expected serviceActionResultMsg, got %#v", command())
+	}
+	if !starterCalled {
+		t.Fatal("expected injected service starter to be called")
 	}
 }
 
 func TestViewShowsSelectedMenuHelpWithSquareBorder(t *testing.T) {
-	model := NewModel(nil, nil, nil)
+	model := NewModel(nil, nil, nil, nil)
 	model.width = 100
 	model.menuCursor = 4
 
@@ -404,6 +549,22 @@ func TestViewShowsSelectedMenuHelpWithSquareBorder(t *testing.T) {
 	}
 	if strings.Contains(view, "╭") || strings.Contains(view, "╮") {
 		t.Fatalf("expected menu without rounded border: %s", view)
+	}
+}
+
+func TestScheduledSubmenuMovesHelpWithSelection(t *testing.T) {
+	model := Model{screen: scheduledActionsScreen, selectCursor: 2, width: 100}
+	view := model.View()
+	if !strings.Contains(view, scheduledActionHelp(2)) || strings.Contains(view, menuHelp(scheduledSyncMenuIndex)) {
+		t.Fatalf("expected selected submenu help in view, got:\n%s", view)
+	}
+	updated, _ := model.updateScheduledActions(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	if model.selectCursor != 3 {
+		t.Fatalf("expected submenu selection to advance, got %d", model.selectCursor)
+	}
+	if !strings.Contains(model.View(), scheduledActionHelp(3)) {
+		t.Fatalf("expected help to follow submenu selection, got:\n%s", model.View())
 	}
 }
 
@@ -968,7 +1129,7 @@ func TestCertdSettingsSaveTriggersHeartbeat(t *testing.T) {
 	}
 	settings := storeRepo.NewSettingsRepository(db)
 	reporter := &testHeartbeatReporter{}
-	model := NewModelWithSettings(nil, nil, settings, nil)
+	model := NewModelWithSettings(nil, nil, settings, nil, nil)
 	model.SetHeartbeatReporter(reporter)
 	model.certdInputs[0].SetValue("https://certd.example.com")
 	model.certdInputs[1].SetValue("key-id")
@@ -981,6 +1142,162 @@ func TestCertdSettingsSaveTriggersHeartbeat(t *testing.T) {
 	cmd()
 	if !reporter.called {
 		t.Fatal("保存接口设置后应立即触发心跳")
+	}
+}
+
+func TestScheduleMenuOpensSettingsScreen(t *testing.T) {
+	db, err := store.OpenDatabase("file:tui-schedule-open?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := storeRepo.NewSettingsRepository(db)
+	model := NewModelWithSettings(nil, nil, settings, nil, testRegistry())
+	updated, _ := model.updateHome(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	model.screen = scheduledActionsScreen
+	model.selectCursor = 1
+	updated, _ = model.updateScheduledActions(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.screen != scheduleSettingsScreen {
+		t.Fatalf("expected schedule settings screen, got %v", model.screen)
+	}
+	if model.scheduleReturnScreen != scheduledActionsScreen {
+		t.Fatalf("expected settings to return to scheduled actions, got %v", model.scheduleReturnScreen)
+	}
+	updated, _ = model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyEscape})
+	model = updated.(Model)
+	if model.screen != scheduledActionsScreen {
+		t.Fatalf("expected settings escape to return to scheduled actions, got %v", model.screen)
+	}
+}
+
+func TestScheduleSettingsSavesJSONSetting(t *testing.T) {
+	db, err := store.OpenDatabase("file:tui-schedule-save?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := storeRepo.NewSettingsRepository(db)
+	model := NewModelWithSettings(nil, nil, settings, nil, testRegistry())
+	model.screen = scheduleSettingsScreen
+	model.scheduleInput.SetValue("30 2 * * *")
+	updated, _ := model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.screen != homeScreen {
+		t.Fatalf("expected return home after save, got %v", model.screen)
+	}
+	value, err := settings.GetSetting(schedule.SettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(value, "30 2 * * *") || !strings.Contains(value, `"enabled":true`) {
+		t.Fatalf("unexpected persisted schedule setting: %s", value)
+	}
+}
+
+func TestScheduleSettingsToggleDisabledWithKey(t *testing.T) {
+	db, err := store.OpenDatabase("file:tui-schedule-toggle?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := storeRepo.NewSettingsRepository(db)
+	model := NewModelWithSettings(nil, nil, settings, nil, testRegistry())
+	model.screen = scheduleSettingsScreen
+	model.scheduleEnabled = true
+	updated, _ := model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	model = updated.(Model)
+	if model.scheduleEnabled {
+		t.Fatal("expected e key to disable schedule")
+	}
+	model.scheduleInput.SetValue("0 3 * * *")
+	updated, _ = model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	value, err := settings.GetSetting(schedule.SettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(value, `"enabled":false`) {
+		t.Fatalf("expected persisted disabled schedule, got %s", value)
+	}
+}
+
+func TestScheduleSettingsRejectsInvalidCron(t *testing.T) {
+	db, err := store.OpenDatabase("file:tui-schedule-invalid?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := storeRepo.NewSettingsRepository(db)
+	model := NewModelWithSettings(nil, nil, settings, nil, testRegistry())
+	model.screen = scheduleSettingsScreen
+	model.scheduleInput.SetValue("无效的 cron")
+	updated, _ := model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.screen != scheduleSettingsScreen {
+		t.Fatalf("expected to stay on schedule screen after invalid cron, got %v", model.screen)
+	}
+	value, err := settings.GetSetting(schedule.SettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "" {
+		t.Fatalf("expected invalid cron not persisted, got %s", value)
+	}
+}
+
+func TestScheduleSettingsEscReturnsHome(t *testing.T) {
+	model := NewModelWithSettings(nil, nil, nil, nil, testRegistry())
+	model.screen = scheduleSettingsScreen
+	updated, _ := model.updateScheduleSettings(tea.KeyMsg{Type: tea.KeyEscape})
+	model = updated.(Model)
+	if model.screen != homeScreen {
+		t.Fatalf("expected esc to return home, got %v", model.screen)
+	}
+}
+
+func TestServicesCommandOnlyWindows(t *testing.T) {
+	if servicesCommand("windows") == nil {
+		t.Fatal("expected windows services command")
+	}
+	if servicesCommand("linux") != nil {
+		t.Fatal("expected no graphical services command on linux")
+	}
+}
+
+func TestServicesConsoleHintMentionsSystemctl(t *testing.T) {
+	if !strings.Contains(servicesConsoleHint("linux"), "systemctl") {
+		t.Fatalf("expected systemctl hint, got %q", servicesConsoleHint("linux"))
+	}
+	if !strings.Contains(servicesConsoleHint("windows"), "services.msc") {
+		t.Fatalf("expected services.msc hint, got %q", servicesConsoleHint("windows"))
+	}
+}
+
+func TestServiceMenuOpensConsoleOrHint(t *testing.T) {
+	var output bytes.Buffer
+	opened := false
+	model := Model{screen: scheduledActionsScreen, selectCursor: 4, logger: &testTUILogger{output: &output}, openServices: func() error {
+		opened = true
+		return nil
+	}}
+	updated, cmd := model.updateScheduledActions(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if runtime.GOOS == "windows" {
+		if cmd == nil {
+			t.Fatal("expected open services command on windows")
+		}
+		event, ok := cmd().(servicesOpenedMsg)
+		if !ok || event.err != nil {
+			t.Fatalf("expected services opened message, got %#v", event)
+		}
+		if !opened {
+			t.Fatal("expected injected open services to be called")
+		}
+	} else {
+		if cmd != nil {
+			t.Fatal("expected no command on non-windows")
+		}
+		if !strings.Contains(model.status, "systemctl") {
+			t.Fatalf("expected systemctl hint on non-windows, got %q", model.status)
+		}
 	}
 }
 
