@@ -299,6 +299,9 @@ func Control(action string) error {
 	case "stop":
 		return prg.Stop()
 	case "uninstall":
+		if err := StopIfRunning(); err != nil {
+			return err
+		}
 		return prg.Uninstall()
 	default:
 		return fmt.Errorf("不支持的服务操作：%s", action)
