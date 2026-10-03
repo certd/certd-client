@@ -15,20 +15,21 @@ type fakeServiceManager struct {
 	startErr      error
 	installCalled int
 	startCalled   int
+	stopCalled    int
 }
 
 func (f *fakeServiceManager) Status() (kardianos.Status, error) { return f.status, f.statusErr }
 func (f *fakeServiceManager) Install() error                    { f.installCalled++; return f.installErr }
 func (f *fakeServiceManager) Start() error                      { f.startCalled++; return f.startErr }
-func (f *fakeServiceManager) Stop() error                       { return nil }
+func (f *fakeServiceManager) Stop() error                       { f.stopCalled++; return nil }
 
-func TestEnsureRunningKeepsRunningServiceUntouched(t *testing.T) {
+func TestEnsureRunningRestartsRunningService(t *testing.T) {
 	prg := &fakeServiceManager{status: kardianos.StatusRunning}
 	if err := ensureRunning(prg); err != nil {
 		t.Fatal(err)
 	}
-	if prg.installCalled != 0 || prg.startCalled != 0 {
-		t.Fatalf("运行中的服务不应重复安装或启动，install=%d start=%d", prg.installCalled, prg.startCalled)
+	if prg.installCalled != 0 || prg.startCalled != 1 || prg.stopCalled != 1 {
+		t.Fatalf("运行中的服务应先停止再启动，install=%d start=%d stop=%d", prg.installCalled, prg.startCalled, prg.stopCalled)
 	}
 }
 

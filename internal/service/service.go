@@ -313,7 +313,13 @@ func ensureRunning(prg serviceManager) error {
 	status, err := prg.Status()
 	switch {
 	case err == nil && status == kardianos.StatusRunning:
-		// 服务已在后台运行，无需任何操作。
+		// 重新启动已运行服务，确保定时计划和新版本状态重新加载。
+		if err := prg.Stop(); err != nil {
+			return fmt.Errorf("停止已运行系统服务失败：%w", err)
+		}
+		if err := prg.Start(); err != nil {
+			return fmt.Errorf("重新启动系统服务失败：%w", err)
+		}
 		return nil
 	case err == nil && status == kardianos.StatusStopped:
 		// 服务已注册但未运行，只启动，不重复注册。
