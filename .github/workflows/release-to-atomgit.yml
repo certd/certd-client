@@ -75,6 +75,11 @@ jobs:
           release_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
           release_name=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name --jq .name)
           release_name=${release_name:-$TAG}
+          # AtomGit rejects an empty body, while GitHub allows a Release without notes.
+          # Keep the sync usable for releases whose changelog section has no entries.
+          if [[ -z "${release_body//[[:space:]]/}" ]]; then
+            release_body="Release $TAG"
+          fi
           payload=$(jq -n --arg name "$release_name" --arg tag "$TAG" --arg body "$release_body" '{name: $name, tag_name: $tag, body: $body, release_status: "latest"}')
           curl --fail-with-body --request POST \
             --header "Content-Type: application/json" \

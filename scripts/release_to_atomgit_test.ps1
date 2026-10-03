@@ -11,4 +11,8 @@ if ($workflow -notmatch "release_status.*latest") {
     throw "AtomGit Release request must explicitly use the latest status."
 }
 
+if ($workflow -notmatch 'release_body=\"Release \$TAG\"') {
+    throw "AtomGit Release request must provide a non-empty body fallback."
+}
+
 Write-Host "AtomGit Release request check passed"
