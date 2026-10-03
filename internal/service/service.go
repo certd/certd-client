@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -74,7 +75,65 @@ func buildConfig(execPath, execDir string) *kardianos.Config {
 		Description:      Description,
 		WorkingDirectory: execDir,
 		Arguments:        append([]string(nil), runArgs...),
+		Executable:       serviceExecutablePath(execPath),
 	}
+}
+
+func serviceExecutablePath(execPath string) string {
+	ext := filepath.Ext(execPath)
+	return filepath.Join(filepath.Dir(execPath), ".certd-client-service"+ext)
+}
+
+func syncServiceExecutable(execPath string) error {
+	source, err := os.Open(execPath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	targetPath := serviceExecutablePath(execPath)
+	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return fmt.Errorf("创建服务副本失败：%w", err)
+	}
+	if _, err = io.Copy(target, source); err != nil {
+		_ = target.Close()
+		return fmt.Errorf("复制服务副本失败：%w", err)
+	}
+	if err = target.Close(); err != nil {
+		return fmt.Errorf("关闭服务副本失败：%w", err)
+	}
+	return os.Chmod(targetPath, 0o755)
+}
+
+func registeredExecutableMatches(expected string) bool {
+	expected, err := filepath.Abs(expected)
+	if err != nil {
+		return false
+	}
+	var output []byte
+	if runtime.GOOS == "linux" {
+		output, err = exec.Command("systemctl", "show", Name+".service", "--property=ExecStart", "--value").Output()
+	} else if runtime.GOOS == "windows" {
+		output, err = exec.Command("sc.exe", "qc", Name).Output()
+	} else {
+		return false
+	}
+	if err != nil {
+		return false
+	}
+	return executableInServiceOutput(string(output), expected)
+}
+
+func executableVersionMatches(executable string) bool {
+	output, err := exec.Command(executable, "version").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(output), version.String())
+}
+
+func executableInServiceOutput(output, expected string) bool {
+	return strings.Contains(strings.ToLower(output), strings.ToLower(expected))
 }
 
 // handler 实现 kardianos 的服务接口，在 Start 中读取数据库里的定时计划并循环执行同步。
@@ -83,7 +142,6 @@ type handler struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	closer io.Closer
 }
 
 func (h *handler) Start(kardianos.Service) error {
@@ -97,14 +155,13 @@ func (h *handler) Start(kardianos.Service) error {
 	if err != nil {
 		return fmt.Errorf("打开数据库失败：%w", err)
 	}
-	logger, closer, err := logging.New(logging.DefaultDir)
-	if err != nil {
-		return fmt.Errorf("打开日志失败：%w", err)
+	logger := logging.Default()
+	if logger == nil {
+		return fmt.Errorf("打开日志失败：默认 logger 初始化失败")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancel = cancel
-	h.closer = closer
 	h.mu.Unlock()
 
 	apps := storeRepo.NewTargetAppRepository(db)
@@ -148,15 +205,10 @@ func (h *handler) Start(kardianos.Service) error {
 func (h *handler) Stop(kardianos.Service) error {
 	h.mu.Lock()
 	cancel := h.cancel
-	closer := h.closer
 	h.cancel = nil
-	h.closer = nil
 	h.mu.Unlock()
 	if cancel != nil {
 		cancel()
-	}
-	if closer != nil {
-		_ = closer.Close()
 	}
 	return nil
 }
@@ -247,6 +299,22 @@ func StopIfRunning() error {
 	return nil
 }
 
+// IsRunning 判断系统服务是否已安装且正在运行。未安装时返回 false、nil。
+func IsRunning() (bool, error) {
+	prg, err := newProgram()
+	if err != nil {
+		return false, err
+	}
+	status, err := prg.Status()
+	if err != nil {
+		if isServiceMissingError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return status == kardianos.StatusRunning, nil
+}
+
 // StartIfInstalled 启动已安装但未运行的系统服务。服务未安装时直接跳过。
 func StartIfInstalled() error {
 	prg, err := newProgram()
@@ -271,7 +339,7 @@ func StartIfInstalled() error {
 
 func isServiceMissingError(err error) bool {
 	message := strings.ToLower(err.Error())
-	for _, phrase := range []string{"not found", "does not exist", "不存在", "找不到", "no such service", "service unavailable"} {
+	for _, phrase := range []string{"not found", "does not exist", "不存在", "找不到", "no such service", "service unavailable", "service is not installed", "service not installed"} {
 		if strings.Contains(message, phrase) {
 			return true
 		}
@@ -282,11 +350,58 @@ func isServiceMissingError(err error) bool {
 // EnsureRunning 确保系统服务已安装并处于运行状态：
 // 已在运行则保持不变；已安装但停止则只启动，不重复安装；尚未安装则安装后启动。
 func EnsureRunning() error {
-	prg, err := newProgram()
+	logging.Info("开始确保系统服务使用独立副本运行")
+	var err error
+	execPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return ensureRunning(prg)
+	execDir := filepath.Dir(execPath)
+	prg, err := kardianos.New(&handler{execDir: execDir}, buildConfig(execPath, execDir))
+	if err != nil {
+		return fmt.Errorf("初始化系统服务失败：%w", err)
+	}
+	status, statusErr := prg.Status()
+	installed := statusErr == nil
+	logging.Info("系统服务状态检查完成：已安装=%t", installed)
+	if statusErr != nil && !isServiceMissingError(statusErr) {
+		return fmt.Errorf("查询系统服务状态失败：%w", statusErr)
+	}
+	if installed {
+		logging.Info("正在停止现有系统服务")
+		if err := prg.Stop(); err != nil && status == kardianos.StatusRunning {
+			return fmt.Errorf("停止现有系统服务失败：%w", err)
+		}
+		servicePath := serviceExecutablePath(execPath)
+		pathMatches := registeredExecutableMatches(servicePath)
+		versionMatches := pathMatches && executableVersionMatches(servicePath)
+		logging.Info("现有服务检查完成：路径一致=%t，版本一致=%t", pathMatches, versionMatches)
+		if versionMatches {
+			logging.Info("系统服务副本版本一致，跳过重新注册，正在启动")
+			if err := prg.Start(); err != nil {
+				return fmt.Errorf("启动系统服务失败：%w", err)
+			}
+			return nil
+		}
+		logging.Info("系统服务路径或版本不一致，正在卸载旧服务")
+		if err := prg.Uninstall(); err != nil {
+			return fmt.Errorf("卸载旧系统服务失败：%w", err)
+		}
+		logging.Info("旧系统服务已卸载")
+	}
+	logging.Info("正在复制服务程序：%s", serviceExecutablePath(execPath))
+	if err := syncServiceExecutable(execPath); err != nil {
+		return err
+	}
+	if err := prg.Install(); err != nil {
+		return fmt.Errorf("安装系统服务失败：%w", err)
+	}
+	logging.Info("系统服务注册完成，正在启动")
+	if err := prg.Start(); err != nil {
+		return fmt.Errorf("启动系统服务失败：%w", err)
+	}
+	logging.Info("系统服务启动完成")
+	return nil
 }
 
 // Control 执行停止或卸载等服务控制动作。

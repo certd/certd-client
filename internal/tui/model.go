@@ -91,6 +91,8 @@ type Model struct {
 	openServices          func() error
 	updateResult          *updater.Result
 	updateChecking        bool
+	updateArchive         string
+	updateExecutable      string
 	width, height         int
 }
 
@@ -173,6 +175,10 @@ func (m Model) StartRequested() bool {
 	return m.startRequested
 }
 
+func (m Model) UpdatePending() bool      { return m.updateArchive != "" && m.updateExecutable != "" }
+func (m Model) UpdateArchive() string    { return m.updateArchive }
+func (m Model) UpdateExecutable() string { return m.updateExecutable }
+
 type appsLoadedMsg struct {
 	apps []storeRepo.TargetApp
 }
@@ -227,7 +233,8 @@ type updateCheckedMsg struct {
 }
 
 type updateDownloadReadyMsg struct {
-	err error
+	archive, executable string
+	err                 error
 }
 
 // LogMessage 是后台任务投递给 TUI 的简要日志消息。
@@ -304,11 +311,7 @@ func (m Model) downloadUpdateCommand() tea.Cmd {
 			_ = os.Remove(archive)
 			return updateDownloadReadyMsg{err: err}
 		}
-		if err := updater.StartReplacement(archive, executable, os.Getpid(), os.Args[1:]); err != nil {
-			_ = os.Remove(archive)
-			return updateDownloadReadyMsg{err: err}
-		}
-		return updateDownloadReadyMsg{}
+		return updateDownloadReadyMsg{archive: archive, executable: executable}
 	}
 }
 
@@ -455,6 +458,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = homeScreen
 			return m, nil
 		}
+		m.updateArchive = msg.archive
+		m.updateExecutable = msg.executable
 		return m, tea.Quit
 	case syncProgressTickMsg:
 		if !m.syncing {

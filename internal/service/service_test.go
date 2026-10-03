@@ -66,6 +66,32 @@ func TestEnsureRunningReportsInstallFailure(t *testing.T) {
 	}
 }
 
+func TestIsServiceMissingErrorRecognizesNotInstalled(t *testing.T) {
+	if !isServiceMissingError(errors.New("the service is not installed")) {
+		t.Fatal("expected not-installed service error to be ignored")
+	}
+}
+
+func TestRegisteredExecutableMatches(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected string
+		want     bool
+	}{
+		{name: "systemd installed copy", output: "{ path=/opt/certd/.certd-client-service ; argv[]=/opt/certd/.certd-client-service service run }", expected: "/opt/certd/.certd-client-service", want: true},
+		{name: "legacy main executable", output: "{ path=/opt/certd/certd-client ; argv[]=/opt/certd/certd-client service run }", expected: "/opt/certd/.certd-client-service", want: false},
+		{name: "windows installed copy", output: "BINARY_PATH_NAME : C:\\certd\\.certd-client-service.exe service run", expected: "C:\\certd\\.certd-client-service.exe", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := executableInServiceOutput(test.output, test.expected); got != test.want {
+				t.Fatalf("executableInServiceOutput() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestClassifyIgnoresNonServiceCommands(t *testing.T) {
 	for _, args := range [][]string{nil, {}, {"tui"}, {"start"}, {"sync"}} {
 		if _, ok := Classify(args); ok {

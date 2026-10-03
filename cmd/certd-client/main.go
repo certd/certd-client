@@ -33,6 +33,7 @@ func main() {
 	// 最早配置崩溃输出，保证未捕获 panic 与 fatal error 也写入日志文件。
 	// bubbletea 默认会吞掉 panic 只打印到 stdout（不写文件），所以这里另设兜底。
 	configureCrashOutput()
+	logging.SetConsole(os.Stdout)
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -84,6 +85,17 @@ func main() {
 			return
 		}
 	}
+	if running, err := systemservice.IsRunning(); err != nil {
+		logging.Info("检查系统服务运行状态失败：%s", err)
+	} else if running {
+		logging.Info("检测到系统服务正在运行，正在检查并更新服务")
+		if err := systemservice.EnsureRunning(); err != nil {
+			logging.Info("更新系统服务失败：%s", err)
+		} else {
+			logging.Info("系统服务检查完成")
+		}
+	}
+	logging.Info("启动客户端TUI")
 	if err := run(os.Args[1:]); err != nil {
 		reportStartupError(err.Error())
 		os.Exit(1)
@@ -121,10 +133,8 @@ func writeStartupError(logDir, message string) {
 		fmt.Fprintln(os.Stderr, "写入启动错误日志失败："+err.Error())
 		return
 	}
+	defer closer.Close()
 	logger.Error("启动失败：%s", message)
-	if err := closer.Close(); err != nil {
-		fmt.Fprintln(os.Stderr, "关闭启动错误日志失败："+err.Error())
-	}
 }
 
 func run(args []string) error {
@@ -135,11 +145,10 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	logger, closer, err := logging.New(logging.DefaultDir)
-	if err != nil {
-		return fmt.Errorf("open log: %w", err)
+	logger := logging.Default()
+	if logger == nil {
+		return fmt.Errorf("open log: unable to initialize default logger")
 	}
-	defer closer.Close()
 
 	repo := storeRepo.NewTargetAppRepository(db)
 	siteRepo := storeRepo.NewAppSiteRepository(db)
@@ -189,13 +198,21 @@ func run(args []string) error {
 	tuiModel.SetServiceAction(systemservice.ControlService)
 	tuiModel.SetServiceActionElevator(prepareServiceActionElevation)
 	p := tea.NewProgram(tuiModel, tea.WithAltScreen(), tea.WithoutCatchPanics())
+	defer logging.SetConsole(os.Stdout)
 	// p.Send 可能等待当前 Update 返回；异步投递避免 Update 内写日志时与自身死锁。
 	logger.SetTUISink(func(message string) {
 		go p.Send(tui.LogMessage(message))
 	})
 	go reporter.Run(heartbeatCtx)
-	_, err = p.Run()
+	finalModel, err := p.Run()
 	heartbeatCancel()
+	if err == nil {
+		if updateModel, ok := finalModel.(tui.Model); ok && updateModel.UpdatePending() {
+			if startErr := updater.StartReplacement(updateModel.UpdateArchive(), updateModel.UpdateExecutable(), os.Getpid(), os.Args[1:]); startErr != nil {
+				return fmt.Errorf("启动更新 helper 失败：%w", startErr)
+			}
+		}
+	}
 	return err
 }
 

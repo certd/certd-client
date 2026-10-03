@@ -8,9 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
-	"github.com/certd/certd-client/internal/service"
+	"github.com/certd/certd-client/internal/logging"
 )
 
 type helperPayload struct {
@@ -70,6 +71,7 @@ func copyHelperExecutable(executable string) (string, error) {
 }
 
 func RunHelper(encoded string) error {
+	logging.Info("更新 helper 已启动")
 	data, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return err
@@ -78,43 +80,47 @@ func RunHelper(encoded string) error {
 	if err = json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	if err = service.StopIfRunning(); err != nil {
-		return fmt.Errorf("停止系统服务后更新失败：%w", err)
-	}
+	logging.Info("更新参数已解析，等待旧客户端退出")
 	for i := 0; i < 1200; i++ {
 		exited, checkErr := processExited(payload.PID)
 		if checkErr != nil {
 			return fmt.Errorf("检查主程序退出状态失败：%w", checkErr)
 		}
 		if exited {
+			logging.Info("旧客户端已退出")
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
 		if i == 1199 {
+			logging.Info("等待旧客户端退出超时")
 			return fmt.Errorf("等待主程序退出超时")
 		}
 	}
 	// 给 Windows 文件系统和杀毒软件一点时间释放 EXE 映像锁。
 	time.Sleep(500 * time.Millisecond)
 	if err = InstallArchive(payload.Archive, payload.Executable); err != nil {
+		logging.Info("替换客户端文件失败：%s", err)
 		return fmt.Errorf("替换可执行文件失败：%w", err)
 	}
+	logging.Info("新版本文件替换完成")
 	_ = os.Remove(payload.Archive)
-	if err = service.StartIfInstalled(); err != nil {
-		return fmt.Errorf("更新后启动系统服务失败：%w", err)
+	logging.Info("主程序更新完成，系统服务副本不受影响")
+	if runtime.GOOS != "windows" {
+		_ = os.Remove(payload.Helper)
+		logging.Info("更新成功，请手动运行 ./certd-client 重新启动客户端")
+		return nil
 	}
-	// 更新进程可能刚从 TUI/ExecProcess 返回，给终端恢复原始模式留出时间，
-	// 避免 Linux/macOS 重启后的 TUI 抢先进入 raw mode 而收到 I/O error。
-	time.Sleep(1 * time.Second)
 	var startErr error
 	for attempt := 0; attempt < 20; attempt++ {
 		startErr = startUpdatedProcess(payload.Executable, payload.Args)
 		if startErr == nil {
+			logging.Info("新版本客户端已启动")
 			scheduleHelperCleanup(payload.Helper)
 			return nil
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+	logging.Info("启动新客户端失败：%s", startErr)
 	return fmt.Errorf("启动新客户端失败：%w", startErr)
 }
 

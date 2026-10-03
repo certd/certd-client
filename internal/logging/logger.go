@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DefaultDir 是日志目录，DefaultFileName 是客户端日志文件名。
@@ -38,6 +39,42 @@ type Logger struct {
 	tui     func(string)
 }
 
+var defaultLogger struct {
+	logger *Logger
+}
+
+// Default 返回当前进程复用的默认日志实例。
+func Default() *Logger {
+	if defaultLogger.logger == nil {
+		logger, _, err := New(DefaultDir)
+		if err == nil {
+			defaultLogger.logger = logger
+		}
+	}
+	return defaultLogger.logger
+}
+
+// Info 使用默认日志实例记录信息；日志初始化失败时静默跳过。
+func Info(format string, args ...any) {
+	if logger := Default(); logger != nil {
+		logger.Info(format, args...)
+	}
+}
+
+// SetConsole configures the process default logger to write to the console.
+func SetConsole(writer io.Writer) {
+	if logger := Default(); logger != nil {
+		logger.SetConsole(writer)
+	}
+}
+
+// SetTUISink configures the process default logger to send messages to the TUI.
+func SetTUISink(sink func(string)) {
+	if logger := Default(); logger != nil {
+		logger.SetTUISink(sink)
+	}
+}
+
 func New(dir string) (*Logger, io.Closer, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, err
@@ -63,7 +100,6 @@ func (l *Logger) SetTUISink(sink func(string)) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.tui = sink
-	l.console = nil
 }
 
 func (l *Logger) Print(values ...any) { l.write(fmt.Sprint(values...)) }
@@ -92,11 +128,12 @@ func (l *Logger) write(message string) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	l.file.Print(message)
-	if l.console != nil {
+	if l.console != nil && l.tui == nil {
+		consoleMessage := time.Now().Format("2006/01/02 15:04:05 ") + message
 		if strings.HasSuffix(message, "\n") {
-			fmt.Fprint(l.console, message)
+			fmt.Fprint(l.console, consoleMessage)
 		} else {
-			fmt.Fprintln(l.console, message)
+			fmt.Fprintln(l.console, consoleMessage)
 		}
 	}
 	if l.tui != nil {

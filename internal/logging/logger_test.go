@@ -18,6 +18,9 @@ func TestLoggerWritesFileAndConsole(t *testing.T) {
 	var console bytes.Buffer
 	logger.SetConsole(&console)
 	logger.Printf("心跳 %d", 1)
+	if !strings.Contains(console.String(), "/") || !strings.Contains(console.String(), "心跳 1") {
+		t.Fatalf("console should include timestamp and message: %q", console.String())
+	}
 	if !strings.Contains(console.String(), "心跳 1") {
 		t.Fatalf("console=%q", console.String())
 	}
@@ -43,6 +46,28 @@ func TestLoggerWritesTUISinkAndFile(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dir, DefaultFileName))
 	if err != nil || !strings.Contains(string(content), "正在上报心跳") {
 		t.Fatalf("file=%q err=%v", content, err)
+	}
+}
+
+func TestLoggerTUISinkSuppressesConsoleUntilCleared(t *testing.T) {
+	dir := t.TempDir()
+	logger, closer, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+	var console bytes.Buffer
+	var messages []string
+	logger.SetConsole(&console)
+	logger.SetTUISink(func(message string) { messages = append(messages, message) })
+	logger.Info("tui message")
+	if console.Len() != 0 || len(messages) != 1 {
+		t.Fatalf("console=%q messages=%v", console.String(), messages)
+	}
+	logger.SetConsole(&console)
+	logger.Info("console message")
+	if !strings.Contains(console.String(), "console message") {
+		t.Fatalf("console=%q", console.String())
 	}
 }
 
