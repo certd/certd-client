@@ -92,18 +92,22 @@ func TestUpdateAddsExternalLogMessage(t *testing.T) {
 
 func TestVersionCheckLogsChannelsAndUpdate(t *testing.T) {
 	var output bytes.Buffer
+	latestVersion := version.String() + "-test"
 	model := Model{logger: &testTUILogger{output: &output}}
 	updated, _ := model.Update(updateCheckedMsg{result: &updater.Result{
-		Version:  "0.4.0",
-		Channels: []updater.Channel{{Name: "AtomGit", Version: "0.4.0", Latency: 120 * time.Millisecond}, {Name: "GitHub", Version: "0.4.0", Latency: 250 * time.Millisecond}},
+		Version:  latestVersion,
+		Channels: []updater.Channel{{Name: "AtomGit", Version: latestVersion, Latency: 120 * time.Millisecond}, {Name: "GitHub", Version: latestVersion, Latency: 250 * time.Millisecond}},
 		Fastest:  updater.Channel{Name: "AtomGit"},
 	}})
 	model = updated.(Model)
 	if !strings.Contains(output.String(), "版本检查结果：AtomGit") || !strings.Contains(output.String(), "发现新版本") {
 		t.Fatalf("expected version check logs, got %q", output.String())
 	}
-	if model.updateResult == nil || model.updateResult.Version != "0.4.0" {
+	if model.updateResult == nil || model.updateResult.Version != latestVersion {
 		t.Fatalf("expected update result to be stored, got %#v", model.updateResult)
+	}
+	if model.status != "发现新版本 v"+latestVersion {
+		t.Fatalf("expected new-version status, got %q", model.status)
 	}
 }
 

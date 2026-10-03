@@ -264,8 +264,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.result != nil && msg.result.Version != version.String() {
 			m.status = "发现新版本 v" + msg.result.Version
 			m.logInfo("发现新版本：当前 v" + version.String() + "，最新 v" + msg.result.Version + "，最快渠道 " + msg.result.Fastest.Name)
+		} else {
+			m.status = "当前已是最新版本 v" + version.String()
 		}
-		m.status = "当前已是最新版本 v" + version.String()
 	case updateReadyMsg:
 		return m, tea.Quit
 	case scanProgressTickMsg:
