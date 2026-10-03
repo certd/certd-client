@@ -20,6 +20,7 @@ import (
 	"github.com/certd/certd-client/internal/store"
 	storeRepo "github.com/certd/certd-client/internal/store/repo"
 	"github.com/certd/certd-client/internal/syncservice"
+	"github.com/certd/certd-client/internal/version"
 	kardianos "github.com/kardianos/service"
 )
 
@@ -114,6 +115,7 @@ func (h *handler) Start(kardianos.Service) error {
 	go reporter.Run(ctx)
 
 	output := func(message string) { logger.Info("%s", message) }
+	output("Certd Client 当前版本：" + version.Version)
 	output("Certd 证书同步服务已启动")
 
 	value, err := settings.GetSetting(schedule.SettingKey)
@@ -220,6 +222,61 @@ type serviceManager interface {
 	Status() (kardianos.Status, error)
 	Install() error
 	Start() error
+	Stop() error
+}
+
+// StopIfRunning 停止正在运行的系统服务。服务未安装时视为已停止，不返回错误。
+func StopIfRunning() error {
+	prg, err := newProgram()
+	if err != nil {
+		return err
+	}
+	status, err := prg.Status()
+	if err != nil {
+		if isServiceMissingError(err) {
+			return nil
+		}
+		return fmt.Errorf("查询系统服务状态失败：%w", err)
+	}
+	if status != kardianos.StatusRunning {
+		return nil
+	}
+	if err := prg.Stop(); err != nil {
+		return fmt.Errorf("停止系统服务失败：%w", err)
+	}
+	return nil
+}
+
+// StartIfInstalled 启动已安装但未运行的系统服务。服务未安装时直接跳过。
+func StartIfInstalled() error {
+	prg, err := newProgram()
+	if err != nil {
+		return err
+	}
+	status, err := prg.Status()
+	if err != nil {
+		if isServiceMissingError(err) {
+			return nil
+		}
+		return fmt.Errorf("查询系统服务状态失败：%w", err)
+	}
+	if status == kardianos.StatusRunning {
+		return nil
+	}
+	if err := prg.Start(); err != nil {
+		return fmt.Errorf("启动已安装系统服务失败：%w", err)
+	}
+	return nil
+}
+
+func isServiceMissingError(err error) bool {
+	message := strings.ToLower(err.Error())
+	for _, phrase := range []string{"not found", "does not exist", "不存在", "找不到", "no such service", "service unavailable"} {
+		if strings.Contains(message, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureRunning 确保系统服务已安装并处于运行状态：

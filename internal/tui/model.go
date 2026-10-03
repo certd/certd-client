@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -31,6 +32,7 @@ const (
 	scheduleSettingsScreen
 	serviceConfirmScreen
 	scheduledActionsScreen
+	updateConfirmScreen
 )
 
 const logPageSize = 10
@@ -224,6 +226,10 @@ type updateCheckedMsg struct {
 	err    error
 }
 
+type updateDownloadReadyMsg struct {
+	err error
+}
+
 // LogMessage 是后台任务投递给 TUI 的简要日志消息。
 type LogMessage string
 
@@ -262,6 +268,47 @@ func (m Model) startServiceCommand() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return serviceActionResultMsg{action: "ensure", err: start()}
+	}
+}
+
+func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "n":
+		m.screen = homeScreen
+		m.status = "已取消客户端更新"
+		m.logInfo(m.status)
+	case "y", "enter":
+		if m.scanning || m.siteScanning || m.syncing {
+			m.status = "已有任务正在执行，请完成后再更新客户端"
+			return m, nil
+		}
+		m.status = "正在下载新版本 v" + m.updateResult.Version
+		m.logInfo(m.status)
+		return m, m.downloadUpdateCommand()
+	}
+	return m, nil
+}
+
+func (m Model) downloadUpdateCommand() tea.Cmd {
+	result := m.updateResult
+	return func() tea.Msg {
+		if result == nil || result.Fastest.URL == "" {
+			return updateDownloadReadyMsg{err: fmt.Errorf("没有可用的更新下载地址")}
+		}
+		archive, err := updater.Download(context.Background(), nil, result.Fastest)
+		if err != nil {
+			return updateDownloadReadyMsg{err: err}
+		}
+		executable, err := updater.CurrentExecutable()
+		if err != nil {
+			_ = os.Remove(archive)
+			return updateDownloadReadyMsg{err: err}
+		}
+		if err := updater.StartReplacement(archive, executable, os.Getpid(), os.Args[1:]); err != nil {
+			_ = os.Remove(archive)
+			return updateDownloadReadyMsg{err: err}
+		}
+		return updateDownloadReadyMsg{}
 	}
 }
 
@@ -311,6 +358,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.result != nil && msg.result.Version != version.String() {
 			m.status = "发现新版本 v" + msg.result.Version
 			m.logInfo("发现新版本：当前 v" + version.String() + "，最新 v" + msg.result.Version + "，最快渠道 " + msg.result.Fastest.Name)
+			if m.menuCursor == updateMenuIndex {
+				m.screen = updateConfirmScreen
+			}
 		} else {
 			m.status = "当前已是最新版本 v" + version.String()
 		}
@@ -394,11 +444,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = serviceActionSuccess(msg.action)
 		m.logInfo(m.status)
 		if msg.action == "ensure" {
-			m.screen = homeScreen
-			return m, nil
+			return m, tea.ExecProcess(logFollowCommand(runtime.GOOS), func(error) tea.Msg { return tea.Quit() })
 		}
 		m.screen = scheduledActionsScreen
 		return m, nil
+	case updateDownloadReadyMsg:
+		if msg.err != nil {
+			m.status = "下载更新失败：" + msg.err.Error()
+			m.logInfo(m.status)
+			m.screen = homeScreen
+			return m, nil
+		}
+		return m, tea.Quit
 	case syncProgressTickMsg:
 		if !m.syncing {
 			return m, nil
@@ -446,6 +503,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateServiceConfirm(msg)
 		case scheduledActionsScreen:
 			return m.updateScheduledActions(msg)
+		case updateConfirmScreen:
+			return m.updateConfirm(msg)
 		}
 	}
 	return m, nil
@@ -469,15 +528,9 @@ func (m Model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openLogCommand()
 		}
 		if m.menuCursor == updateMenuIndex {
-			if m.updateResult == nil || m.updateResult.Version == version.String() {
-				m.status = "正在检查更新"
-				m.updateChecking = true
-				return m, m.checkUpdates()
-			}
-			// 检测到新版本只提示，不自动下载安装、替换或重启，避免影响正在运行的同步任务。
-			m.status = "发现新版本 v" + m.updateResult.Version + "，已停用自动更新，请通过安装脚本或发布页手动更新"
-			m.logInfo(m.status)
-			return m, nil
+			m.status = "正在检查更新"
+			m.updateChecking = true
+			return m, m.checkUpdates()
 		}
 		if m.scanning || m.siteScanning || m.syncing {
 			m.status = "已有任务正在执行"
@@ -1188,6 +1241,8 @@ func (m Model) View() string {
 			rows = append(rows, prefix+item)
 		}
 		center = "定时执行\n\n" + strings.Join(rows, "\n") + "\n\n上下键选择 · Enter 执行 · Esc 返回"
+	case updateConfirmScreen:
+		center = "发现新版本 v" + m.updateResult.Version + "\n\n当前版本：v" + version.String() + "\n\n是否立即下载并更新？\n\n按 y/Enter 确认，按 Esc/n 取消"
 	default:
 		rootWidth := applicationRootColumnWidth(width)
 		rows := []string{applicationTableHeader(rootWidth), applicationTableSeparator(rootWidth)}
@@ -1271,7 +1326,7 @@ func menuHelp(index int) string {
 		"检查 Certd 证书并部署到已启用的 HTTPS 站点",
 		"启动、配置、停止或卸载定时同步系统服务",
 		"用系统默认程序打开日志文件 logs/client.log，查看详细错误",
-		"发现新版本时仅提示，不会自动更新；请通过安装脚本或发布页手动更新",
+		"检查是否有新版本可用，提示是否下载并更新",
 	}
 	if index < 0 || index >= len(help) {
 		return ""
@@ -1296,7 +1351,7 @@ func scheduledActionHelp(index int) string {
 func serviceActionSuccess(action string) string {
 	switch action {
 	case "ensure":
-		return "定时同步服务已启动，您可以按 Ctrl+C 退出本应用界面\n使用 tail -f -n 50 ./logs/client.log 查看运行日志"
+		return "定时同步服务已启动，UI界面将退出，下面会立即执行一次证书同步任务，有同步任务日志输出时，说明定时同步任务在后台正常运行，您按Ctrl+C退出即可"
 	case "stop":
 		return "定时同步服务已停止"
 	case "uninstall":

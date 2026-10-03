@@ -41,3 +41,14 @@ func TestEnsureLogFileCreatesMissingLogFile(t *testing.T) {
 		t.Fatalf("expected log file to exist: %v", err)
 	}
 }
+
+func TestLogFollowCommandByPlatform(t *testing.T) {
+	windows := logFollowCommand("windows")
+	if filepath.Base(windows.Args[0]) != "powershell.exe" || !strings.Contains(strings.Join(windows.Args, " "), "GetEncoding(936)") || !strings.Contains(strings.Join(windows.Args, " "), "-Tail 50") || !strings.Contains(strings.Join(windows.Args, " "), "-Wait") {
+		t.Fatalf("unexpected Windows log follow command: %#v", windows.Args)
+	}
+	unix := logFollowCommand("linux")
+	if filepath.Base(unix.Args[0]) != "tail" || strings.Join(unix.Args[1:], " ") != "-f -n 50 ./logs/client.log" {
+		t.Fatalf("unexpected Unix log follow command: %#v", unix.Args)
+	}
+}

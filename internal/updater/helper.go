@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/certd/certd-client/internal/service"
 )
 
 type helperPayload struct {
@@ -16,6 +18,9 @@ type helperPayload struct {
 	PID                         int
 	Args                        []string
 }
+
+// CurrentExecutable returns the path of the running client executable.
+func CurrentExecutable() (string, error) { return os.Executable() }
 
 func StartReplacement(archive, executable string, pid int, args []string) error {
 	helper, err := copyHelperExecutable(executable)
@@ -73,6 +78,9 @@ func RunHelper(encoded string) error {
 	if err = json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
+	if err = service.StopIfRunning(); err != nil {
+		return fmt.Errorf("停止系统服务后更新失败：%w", err)
+	}
 	for i := 0; i < 1200; i++ {
 		exited, checkErr := processExited(payload.PID)
 		if checkErr != nil {
@@ -92,6 +100,12 @@ func RunHelper(encoded string) error {
 		return fmt.Errorf("替换可执行文件失败：%w", err)
 	}
 	_ = os.Remove(payload.Archive)
+	if err = service.StartIfInstalled(); err != nil {
+		return fmt.Errorf("更新后启动系统服务失败：%w", err)
+	}
+	// 更新进程可能刚从 TUI/ExecProcess 返回，给终端恢复原始模式留出时间，
+	// 避免 Linux/macOS 重启后的 TUI 抢先进入 raw mode 而收到 I/O error。
+	time.Sleep(1 * time.Second)
 	var startErr error
 	for attempt := 0; attempt < 20; attempt++ {
 		startErr = startUpdatedProcess(payload.Executable, payload.Args)

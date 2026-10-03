@@ -329,6 +329,7 @@ func runStart(expression string, service *syncservice.Service, apps *storeRepo.T
 	defer stop()
 	logger.SetConsole(os.Stdout)
 	output := func(values ...any) { logger.Info("%s", fmt.Sprint(values...)) }
+	output("Certd Client 当前版本：" + version.Version)
 	go reporter.Run(ctx)
 	run := func() {
 		result := service.RunConfigured(ctx, apps, settings, func(message string) { output(message) })

@@ -20,6 +20,7 @@ type fakeServiceManager struct {
 func (f *fakeServiceManager) Status() (kardianos.Status, error) { return f.status, f.statusErr }
 func (f *fakeServiceManager) Install() error                    { f.installCalled++; return f.installErr }
 func (f *fakeServiceManager) Start() error                      { f.startCalled++; return f.startErr }
+func (f *fakeServiceManager) Stop() error                       { return nil }
 
 func TestEnsureRunningKeepsRunningServiceUntouched(t *testing.T) {
 	prg := &fakeServiceManager{status: kardianos.StatusRunning}

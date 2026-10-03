@@ -396,7 +396,7 @@ func TestScheduledSyncMenuAsksForServiceConfirmation(t *testing.T) {
 	}
 }
 
-func TestScheduledSyncConfirmStartsServiceAndKeepsInterfaceOpen(t *testing.T) {
+func TestScheduledSyncConfirmStartsServiceAndFollowsLogs(t *testing.T) {
 	var output bytes.Buffer
 	called := false
 	model := Model{screen: serviceConfirmScreen, logger: &testTUILogger{output: &output}, startService: func() error {
@@ -416,11 +416,14 @@ func TestScheduledSyncConfirmStartsServiceAndKeepsInterfaceOpen(t *testing.T) {
 	}
 	updated, command = model.Update(serviceActionResultMsg{action: "ensure"})
 	model = updated.(Model)
-	if command != nil || model.screen != homeScreen {
-		t.Fatal("服务启动成功后应留在 TUI 首页，不能退出")
+	if command == nil {
+		t.Fatal("服务启动成功后应返回日志跟踪命令并退出 TUI")
+	}
+	if model.screen != serviceConfirmScreen {
+		t.Fatalf("服务启动成功后不应继续显示 TUI，got screen %v", model.screen)
 	}
 	if !strings.Contains(model.status, "服务已启动") || !strings.Contains(model.status, "Ctrl+C") {
-		t.Fatalf("应提示服务已启动并说明 Ctrl+C 退出方式，got %q", model.status)
+		t.Fatalf("应提示服务已启动并说明退出方式，got %q", model.status)
 	}
 	if !strings.Contains(output.String(), "Ctrl+C") {
 		t.Fatalf("启动成功提示应写入日志，got %q", output.String())

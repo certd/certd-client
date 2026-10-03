@@ -49,3 +49,15 @@ func logViewerCommand(goos, path string) *exec.Cmd {
 		return exec.Command("xdg-open", path)
 	}
 }
+
+// logFollowCommand 返回前台跟踪日志的命令，服务启动后交给终端继续显示运行日志。
+func logFollowCommand(goos string) *exec.Cmd {
+	const path = "./logs/client.log"
+	if goos == "windows" {
+		// Windows PowerShell 5 默认按系统代码页写控制台；显式使用 936，
+		// 将 UTF-8 日志正确转换后输出到中文控制台，避免中文显示为乱码。
+		command := "$OutputEncoding = [Text.Encoding]::GetEncoding(936); [Console]::OutputEncoding = $OutputEncoding; Get-Content -LiteralPath './logs/client.log' -Encoding UTF8 -Tail 50 -Wait"
+		return exec.Command("powershell.exe", "-NoProfile", "-Command", command)
+	}
+	return exec.Command("tail", "-f", "-n", "50", path)
+}
