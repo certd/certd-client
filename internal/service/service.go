@@ -91,18 +91,32 @@ func syncServiceExecutable(execPath string) error {
 	}
 	defer source.Close()
 	targetPath := serviceExecutablePath(execPath)
-	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	tmp, err := os.CreateTemp(filepath.Dir(targetPath), ".certd-client-service-*")
 	if err != nil {
 		return fmt.Errorf("创建服务副本失败：%w", err)
 	}
-	if _, err = io.Copy(target, source); err != nil {
-		_ = target.Close()
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpPath) }
+	if _, err = io.Copy(tmp, source); err != nil {
+		cleanup()
 		return fmt.Errorf("复制服务副本失败：%w", err)
 	}
-	if err = target.Close(); err != nil {
+	if err = tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("关闭服务副本失败：%w", err)
 	}
-	return os.Chmod(targetPath, 0o755)
+	if err = os.Chmod(tmpPath, 0o755); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	for attempt := 0; attempt < 10; attempt++ {
+		if err = os.Rename(tmpPath, targetPath); err == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = os.Remove(tmpPath)
+	return fmt.Errorf("替换服务副本失败：%w", err)
 }
 
 func registeredExecutableMatches(expected string) bool {
@@ -115,6 +129,8 @@ func registeredExecutableMatches(expected string) bool {
 		output, err = exec.Command("systemctl", "show", Name+".service", "--property=ExecStart", "--value").Output()
 	} else if runtime.GOOS == "windows" {
 		output, err = exec.Command("sc.exe", "qc", Name).Output()
+	} else if runtime.GOOS == "darwin" {
+		return true
 	} else {
 		return false
 	}
@@ -129,7 +145,13 @@ func executableVersionMatches(executable string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), version.String())
+	fields := strings.Fields(string(output))
+	for i, field := range fields {
+		if field == "certd-client" && i+1 < len(fields) {
+			return strings.TrimSpace(fields[i+1]) == version.String()
+		}
+	}
+	return false
 }
 
 func executableInServiceOutput(output, expected string) bool {
@@ -237,6 +259,13 @@ func Run(args []string) error {
 	}
 	switch action {
 	case "install":
+		execPath, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if err := syncServiceExecutable(execPath); err != nil {
+			return err
+		}
 		return prg.Install()
 	case "uninstall":
 		return prg.Uninstall()
@@ -245,6 +274,13 @@ func Run(args []string) error {
 	case "stop":
 		return prg.Stop()
 	case "ensure":
+		execPath, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if err := syncServiceExecutable(execPath); err != nil {
+			return err
+		}
 		return ensureRunning(prg)
 	case "run":
 		return prg.Run()
@@ -368,20 +404,23 @@ func EnsureRunning() error {
 		return fmt.Errorf("查询系统服务状态失败：%w", statusErr)
 	}
 	if installed {
-		logging.Info("正在停止现有系统服务")
-		if err := prg.Stop(); err != nil && status == kardianos.StatusRunning {
-			return fmt.Errorf("停止现有系统服务失败：%w", err)
-		}
 		servicePath := serviceExecutablePath(execPath)
 		pathMatches := registeredExecutableMatches(servicePath)
 		versionMatches := pathMatches && executableVersionMatches(servicePath)
 		logging.Info("现有服务检查完成：路径一致=%t，版本一致=%t", pathMatches, versionMatches)
 		if versionMatches {
-			logging.Info("系统服务副本版本一致，跳过重新注册，正在启动")
+			if status == kardianos.StatusRunning {
+				return nil
+			}
+			logging.Info("系统服务副本版本一致，正在启动")
 			if err := prg.Start(); err != nil {
 				return fmt.Errorf("启动系统服务失败：%w", err)
 			}
 			return nil
+		}
+		logging.Info("正在停止现有系统服务")
+		if err := prg.Stop(); err != nil && status == kardianos.StatusRunning {
+			return fmt.Errorf("停止现有系统服务失败：%w", err)
 		}
 		logging.Info("系统服务路径或版本不一致，正在卸载旧服务")
 		if err := prg.Uninstall(); err != nil {

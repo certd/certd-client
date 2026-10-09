@@ -39,25 +39,42 @@ type Logger struct {
 	tui     func(string)
 }
 
-var defaultLogger struct {
-	logger *Logger
-}
+var (
+	defaultLoggerMu sync.Mutex
+	defaultLogger   *Logger
+)
 
 // Default 返回当前进程复用的默认日志实例。
 func Default() *Logger {
-	if defaultLogger.logger == nil {
+	defaultLoggerMu.Lock()
+	defer defaultLoggerMu.Unlock()
+	if defaultLogger == nil {
 		logger, _, err := New(DefaultDir)
 		if err == nil {
-			defaultLogger.logger = logger
+			defaultLogger = logger
 		}
 	}
-	return defaultLogger.logger
+	return defaultLogger
 }
 
 // Info 使用默认日志实例记录信息；日志初始化失败时静默跳过。
 func Info(format string, args ...any) {
 	if logger := Default(); logger != nil {
 		logger.Info(format, args...)
+	}
+}
+
+// Warning 使用默认日志实例记录警告。
+func Warning(format string, args ...any) {
+	if logger := Default(); logger != nil {
+		logger.Warning(format, args...)
+	}
+}
+
+// Error 使用默认日志实例记录错误。
+func Error(format string, args ...any) {
+	if logger := Default(); logger != nil {
+		logger.Error(format, args...)
 	}
 }
 

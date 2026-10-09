@@ -99,7 +99,7 @@ func RunHelper(encoded string) error {
 	// 给 Windows 文件系统和杀毒软件一点时间释放 EXE 映像锁。
 	time.Sleep(500 * time.Millisecond)
 	if err = InstallArchive(payload.Archive, payload.Executable); err != nil {
-		logging.Info("替换客户端文件失败：%s", err)
+		logging.Error("替换客户端文件失败：%s", err)
 		return fmt.Errorf("替换可执行文件失败：%w", err)
 	}
 	logging.Info("新版本文件替换完成")
@@ -120,7 +120,7 @@ func RunHelper(encoded string) error {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	logging.Info("启动新客户端失败：%s", startErr)
+	logging.Error("启动新客户端失败：%s", startErr)
 	return fmt.Errorf("启动新客户端失败：%w", startErr)
 }
 

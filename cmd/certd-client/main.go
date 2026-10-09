@@ -85,14 +85,16 @@ func main() {
 			return
 		}
 	}
-	if running, err := systemservice.IsRunning(); err != nil {
-		logging.Info("检查系统服务运行状态失败：%s", err)
-	} else if running {
-		logging.Info("检测到系统服务正在运行，正在检查并更新服务")
-		if err := systemservice.EnsureRunning(); err != nil {
-			logging.Info("更新系统服务失败：%s", err)
-		} else {
-			logging.Info("系统服务检查完成")
+	if len(os.Args) == 1 || (len(os.Args) > 1 && strings.EqualFold(os.Args[1], "tui")) {
+		if running, err := systemservice.IsRunning(); err != nil {
+			logging.Error("检查系统服务运行状态失败：%s", err)
+		} else if running {
+			logging.Info("检测到系统服务正在运行，正在检查并更新服务")
+			if err := systemservice.EnsureRunning(); err != nil {
+				logging.Error("更新系统服务失败：%s", err)
+			} else {
+				logging.Info("系统服务检查完成")
+			}
 		}
 	}
 	logging.Info("启动客户端TUI")
@@ -133,7 +135,11 @@ func writeStartupError(logDir, message string) {
 		fmt.Fprintln(os.Stderr, "写入启动错误日志失败："+err.Error())
 		return
 	}
-	defer closer.Close()
+	defer func() {
+		if err := closer.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "关闭启动错误日志失败："+err.Error())
+		}
+	}()
 	logger.Error("启动失败：%s", message)
 }
 
