@@ -176,6 +176,12 @@ type handler struct {
 }
 
 func (h *handler) Start(kardianos.Service) error {
+	// 先使用工作目录无关的绝对日志路径记录服务入口，便于定位服务控制器已启动但无同步日志的情况。
+	startupLogger, startupCloser, startupErr := logging.New(filepath.Join(h.execDir, logging.DefaultDir))
+	if startupErr == nil {
+		startupLogger.Info("服务进程已进入 Start，工作目录：%s", h.execDir)
+		_ = startupCloser.Close()
+	}
 	if h.execDir != "" {
 		// 服务进程的工作目录可能不是安装目录，显式切换以保证相对路径一致。
 		if err := os.Chdir(h.execDir); err != nil {
@@ -184,10 +190,16 @@ func (h *handler) Start(kardianos.Service) error {
 	}
 	db, err := store.OpenDatabase(filepath.Join("data", "certd-client.db"))
 	if err != nil {
+		if startupErr == nil {
+			startupLogger.Error("打开数据库失败：%s", err.Error())
+		}
 		return fmt.Errorf("打开数据库失败：%w", err)
 	}
 	logger := logging.Default()
 	if logger == nil {
+		if startupErr == nil {
+			startupLogger.Error("默认日志初始化失败")
+		}
 		return fmt.Errorf("打开日志失败：默认 logger 初始化失败")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -205,6 +217,7 @@ func (h *handler) Start(kardianos.Service) error {
 	output := func(message string) { logger.Info("%s", message) }
 	output("Certd Client 当前版本：" + version.Version)
 	output("Certd 证书同步服务已启动")
+	output("正在执行启动后的首次证书同步")
 
 	value, err := settings.GetSetting(schedule.SettingKey)
 	if err != nil {

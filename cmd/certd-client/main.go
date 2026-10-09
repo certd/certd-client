@@ -33,7 +33,6 @@ func main() {
 	// 最早配置崩溃输出，保证未捕获 panic 与 fatal error 也写入日志文件。
 	// bubbletea 默认会吞掉 panic 只打印到 stdout（不写文件），所以这里另设兜底。
 	configureCrashOutput()
-	logging.SetConsole(os.Stdout)
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -75,6 +74,9 @@ func main() {
 		}
 		return
 	}
+	// 服务进程由 handler.Start 切换到安装目录后再初始化默认 logger，
+	// 避免 Windows 服务启动时以 System32 为工作目录写入错误的 logs 目录。
+	logging.SetConsole(os.Stdout)
 	if runtime.GOOS == "windows" {
 		relaunched, err := elevation.New().Request()
 		if err != nil {
