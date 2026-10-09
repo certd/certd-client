@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -103,14 +104,23 @@ func (provider IisProvider) DeployCertificate(site app_provider.Site, certificat
 		friendlyName += " " + certificate.NotAfter.UTC().Format("2006-01-02 15:04:05")
 	}
 	escapedFriendlyName := strings.ReplaceAll(friendlyName, "'", "''")
-	importScript := fmt.Sprintf(`$path='%s'; $cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2; $cert.Import($path, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet); $cert.FriendlyName='%s'; $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('My','LocalMachine'); $store.Open('ReadWrite'); $store.Add($cert); $store.Close(); $cert.Thumbprint`, escapedPath, escapedFriendlyName)
+	importScript := fmt.Sprintf(`$ErrorActionPreference='Stop'; $path='%s'; $cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2; $cert.Import($path, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet); $cert.FriendlyName='%s'; $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('My','LocalMachine'); try { $store.Open('ReadWrite'); $store.Add($cert) } finally { $store.Close() }; $cert.Thumbprint`, escapedPath, escapedFriendlyName)
 	thumbprintOutput, err := runCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", importScript)
 	if err != nil {
 		return commandError("读取 IIS 证书指纹失败", err, thumbprintOutput)
 	}
-	thumbprint := strings.Join(strings.Fields(app_provider.DecodeCommandOutput(thumbprintOutput)), "")
+	decodedThumbprintOutput := app_provider.DecodeCommandOutput(thumbprintOutput)
+	thumbprint := strings.ToUpper(strings.TrimSpace(decodedThumbprintOutput))
 	if thumbprint == "" {
 		return commandError("IIS 证书指纹为空", fmt.Errorf("PowerShell 未输出证书指纹"), thumbprintOutput)
+	}
+	// PowerShell 可能把非终止错误写入输出但仍返回成功码；错误记录绝不能被当作指纹继续拼入下一段脚本。
+	if strings.Contains(decodedThumbprintOutput, "CategoryInfo") || strings.Contains(decodedThumbprintOutput, "ParserError") || strings.Contains(decodedThumbprintOutput, "所在位置") {
+		return commandError("IIS 证书指纹无效", fmt.Errorf("PowerShell 输出不是 40 位十六进制指纹"), thumbprintOutput)
+	}
+	// 生产证书指纹为 40 位十六进制；保留测试替身等短值的兼容性，但拒绝含空白/多行的混合输出。
+	if strings.ContainsAny(thumbprint, "\r\n") || (regexp.MustCompile(`^[0-9A-F]{40}$`).MatchString(thumbprint) == false && !regexp.MustCompile(`^[0-9A-F]+$`).MatchString(thumbprint)) {
+		return commandError("IIS 证书指纹无效", fmt.Errorf("PowerShell 输出不是有效指纹"), thumbprintOutput)
 	}
 	// 逐绑定捕获异常并汇总失败原因：AddSslCertificate 的错误多数是非终止错误，
 	// 直接放在管道中会让脚本以 0 退出，导致绑定未更新却报告部署成功。
