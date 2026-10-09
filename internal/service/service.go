@@ -110,6 +110,15 @@ func syncServiceExecutable(execPath string) error {
 		return err
 	}
 	for attempt := 0; attempt < 10; attempt++ {
+		if runtime.GOOS == "windows" {
+			// Windows Rename cannot replace an existing file. The service must be
+			// stopped by the caller before this point so the image lock is released.
+			if removeErr := os.Remove(targetPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				err = removeErr
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+		}
 		if err = os.Rename(tmpPath, targetPath); err == nil {
 			return nil
 		}
@@ -130,7 +139,7 @@ func registeredExecutableMatches(expected string) bool {
 	} else if runtime.GOOS == "windows" {
 		output, err = exec.Command("sc.exe", "qc", Name).Output()
 	} else if runtime.GOOS == "darwin" {
-		return true
+		output, err = exec.Command("launchctl", "print", "system/"+Name).CombinedOutput()
 	} else {
 		return false
 	}
@@ -274,13 +283,6 @@ func Run(args []string) error {
 	case "stop":
 		return prg.Stop()
 	case "ensure":
-		execPath, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		if err := syncServiceExecutable(execPath); err != nil {
-			return err
-		}
 		return ensureRunning(prg)
 	case "run":
 		return prg.Run()
