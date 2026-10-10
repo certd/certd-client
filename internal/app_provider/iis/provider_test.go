@@ -252,7 +252,7 @@ func TestDeployCertificateImportsPfxAndUpdatesHttpsBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate($cert.Thumbprint,'My')") || !strings.Contains(commands[1], "foreach ($binding in") || !strings.Contains(commands[1], "ABC123") {
+	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], ".Import($path, '',") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate($cert.Thumbprint,'My')") || !strings.Contains(commands[1], "foreach ($binding in") || !strings.Contains(commands[1], "ABC123") {
 		t.Fatalf("unexpected IIS deployment commands: %#v", commands)
 	}
 	// IIS 原生配置方法（rscaext.xml）的 certificateHash 参数是字符串，
