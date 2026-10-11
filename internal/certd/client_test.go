@@ -76,7 +76,7 @@ func TestGetCertificateSendsAutoApplyRequest(t *testing.T) {
 			t.Fatalf("unexpected request body: %#v", payload)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"code":0,"data":{"crt":"certificate","key":"private-key","pfx":"cGZ4","detail":{"notAfter":1800000000000}}}`))
+		_, _ = writer.Write([]byte(`{"code":0,"data":{"crt":"certificate","key":"private-key","pfx":"cGZ4","certPassword":"pfx-secret","detail":{"notAfter":1800000000000}}}`))
 	}))
 	defer server.Close()
 
@@ -85,7 +85,7 @@ func TestGetCertificateSendsAutoApplyRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if certificate.CertificatePEM != "certificate" || certificate.PrivateKeyPEM != "private-key" || certificate.PfxBase64 != "cGZ4" || !certificate.NotAfter.Equal(time.UnixMilli(1800000000000)) {
+	if certificate.CertificatePEM != "certificate" || certificate.PrivateKeyPEM != "private-key" || certificate.PfxBase64 != "cGZ4" || certificate.CertPassword != "pfx-secret" || !certificate.NotAfter.Equal(time.UnixMilli(1800000000000)) {
 		t.Fatalf("unexpected certificate: %#v", certificate)
 	}
 }

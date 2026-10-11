@@ -248,11 +248,11 @@ func TestDeployCertificateImportsPfxAndUpdatesHttpsBinding(t *testing.T) {
 		},
 	}
 
-	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), NotAfter: time.Date(2026, 8, 9, 12, 34, 56, 0, time.UTC)})
+	err := provider.DeployCertificate(app_provider.Site{PrimaryDomain: "example.com", DeploymentName: "Example"}, certd.Certificate{PfxBase64: base64.StdEncoding.EncodeToString([]byte("pfx")), CertPassword: "pfx-secret", NotAfter: time.Date(2026, 8, 9, 12, 34, 56, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], ".Import($path, '',") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate($cert.Thumbprint,'My')") || !strings.Contains(commands[1], "foreach ($binding in") || !strings.Contains(commands[1], "ABC123") {
+	if len(commands) != 2 || !strings.Contains(commands[0], "X509Store") || !strings.Contains(commands[0], "LocalMachine") || !strings.Contains(commands[0], ".Import($path, 'pfx-secret',") || !strings.Contains(commands[0], "FriendlyName") || !strings.Contains(commands[0], "example.com 2026-08-09 12:34:56") || !strings.Contains(commands[1], "AddSslCertificate($cert.Thumbprint,'My')") || !strings.Contains(commands[1], "foreach ($binding in") || !strings.Contains(commands[1], "ABC123") {
 		t.Fatalf("unexpected IIS deployment commands: %#v", commands)
 	}
 	// IIS 原生配置方法（rscaext.xml）的 certificateHash 参数是字符串，

@@ -49,6 +49,7 @@ type Certificate struct {
 	CertificatePEM string
 	PrivateKeyPEM  string
 	PfxBase64      string
+	CertPassword   string
 	NotAfter       time.Time
 }
 
@@ -91,10 +92,11 @@ type heartbeatResponse struct {
 }
 
 type certificateResponse struct {
-	Crt    string `json:"crt"`
-	Key    string `json:"key"`
-	Pfx    string `json:"pfx"`
-	Detail struct {
+	Crt          string `json:"crt"`
+	Key          string `json:"key"`
+	Pfx          string `json:"pfx"`
+	CertPassword string `json:"certPassword"`
+	Detail       struct {
 		NotAfter int64 `json:"notAfter"`
 	} `json:"detail"`
 }
@@ -130,6 +132,7 @@ func (client *Client) GetCertificate(domains []string, pipelineId int64) (Certif
 		CertificatePEM: response.Crt,
 		PrivateKeyPEM:  response.Key,
 		PfxBase64:      response.Pfx,
+		CertPassword:   response.CertPassword,
 	}
 	if response.Detail.NotAfter > 0 {
 		certificate.NotAfter = time.UnixMilli(response.Detail.NotAfter)

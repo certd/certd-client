@@ -106,7 +106,8 @@ func (provider IisProvider) DeployCertificate(site app_provider.Site, certificat
 	escapedFriendlyName := strings.ReplaceAll(friendlyName, "'", "''")
 	// Certd 返回的 PFX 使用空密码；显式传入空字符串。PowerShell $null 在部分
 	// Windows/.NET 版本中会被解释为无效密码并报“指定的网络密码不正确”。
-	importScript := fmt.Sprintf(`$ErrorActionPreference='Stop'; $path='%s'; $cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2; $cert.Import($path, '', [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet); $cert.FriendlyName='%s'; $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('My','LocalMachine'); try { $store.Open('ReadWrite'); $store.Add($cert) } finally { $store.Close() }; $cert.Thumbprint`, escapedPath, escapedFriendlyName)
+	escapedPassword := strings.ReplaceAll(certificate.CertPassword, "'", "''")
+	importScript := fmt.Sprintf(`$ErrorActionPreference='Stop'; $path='%s'; $cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2; $cert.Import($path, '%s', [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet); $cert.FriendlyName='%s'; $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('My','LocalMachine'); try { $store.Open('ReadWrite'); $store.Add($cert) } finally { $store.Close() }; $cert.Thumbprint`, escapedPath, escapedPassword, escapedFriendlyName)
 	thumbprintOutput, err := runCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", importScript)
 	if err != nil {
 		return commandError("读取 IIS 证书指纹失败", err, thumbprintOutput)
